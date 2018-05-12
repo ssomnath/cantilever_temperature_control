@@ -15,10 +15,11 @@
 // around the impedence matching problem of ARC1 and ARC2 controllers for this
 // code to work accurately.
 // Electrical circuit: [+] ---  cantilever (Rcant) --- current limiting sense resistor (Rsense) ---- [ground]
-// 1. Connect the Expansion port (D-Sub 25 pin) to the Voltage follower box 
-// 2. Connect Vsense (voltage across Rsense) to the in0 labled on the box NOT on the BNCin0 on the ARC1/ARC2 Controller
-// 3. Connect Vtotal to the in1 labled on the box NOT on the BNCin1 on the ARC1/ARC2 Controller
-// 4. Connect Vtotal to BNCout0 on the ARC1/ARC2 Controller
+// 1. Unplug ALL cables terminating at Input 0, Input 1, Input 2 on the AFM Controller
+// 2. Connect the Expansion port (D-Sub 25 pin) to the Voltage follower box 
+// 3. Connect Vsense (voltage across Rsense) to the in0 labled on the box NOT on the BNCin0 on the ARC1/ARC2 Controller
+// 4. Connect Vtotal to the in1 labled on the box NOT on the BNCin1 on the ARC1/ARC2 Controller
+// 5. Connect Vtotal to BNCout0 on the ARC1/ARC2 Controller
 
 // NOTE - Don't set the Rcant setpoint too close to the room temperature resistance of the cantilever.
 // This causes the PID control to approach a singularity point. In this case 0V will be applied to the circuit resulting
@@ -127,6 +128,14 @@
 // Upcoming changes:
 // proportional gain for TF-AFM
 // Integral and differential parameters for temperature control
+// Use UserCalc channel to provide an ACCURATE Vcant that takes into account any amplification and removes
+//                      any inaccuracies associated with the measurements. 
+// Allow voltage control from menu. 
+
+// Version 1.9
+// Cleaner and safer connection checker
+// Allow Temperature Control to work in conjunction with a Linear Amplifier for larger Voltage range
+// Replaced Lateral (inaccurate) with UserIn0 (accurate Vsense) display. Now even shows a cautionary message about what exactly is being acquired.
 
 // Version 1.8 (9/17/2011):
 // SetPID correction factor now ensures that actual setpoint is close to user specified setpoint.
@@ -162,8 +171,8 @@
 //DataFolderExists("root:packages:TemperatureControl" )
 
 Menu "UIUC"
-	Submenu "Heated Cantilever Suite"
-		"Check Circuit Wiring", ThermalWiringChecker()
+	Submenu "Heated Cantilever Suite v. 1.9"
+		"Connections Checker", CircuitCheckDriver()
 		"I-V Characaterization", IVCharDriver()
 		"Thermal Imaging", ThermalImagingDriver()
 		"Thermal Lithography", ThermalLithoDriver()
@@ -171,9 +180,167 @@ Menu "UIUC"
 	End	
 End
 
-Function ThermalWiringChecker()
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////// CONNECTIONS CHECKER /////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+Function CircuitCheckDriver()
+	
+	// If the panel is already created, just bring it to the front.
+	DoWindow/F CircuitCheckPanel
+	if (V_Flag != 0)
+		return 0
+	endif
+	
+	String dfSave = GetDataFolder(1)
+	
+	// Create a data folder in Packages to store globals.
+	NewDataFolder/O/S root:packages:TemperatureControl
+		
+	Variable rsense = NumVarOrDefault(":gRsense",0.98)
+	Variable/G gRsense= rsense
+	Variable wireChecked = NumVarOrDefault(":gWireChecked",0)
+	Variable/G gWireChecked = wireChecked
+	Variable Amplifier = NumVarOrDefault(":gAmplifier",1)
+	Variable/G gAmplifier= Amplifier
+	
+	NewDataFolder/O/S root:packages:TemperatureControl:CircuitChecker
+	Variable rCant = NumVarOrDefault(":gRcant",NaN)
+	Variable/G gRcant= rcant
+	Variable rCantExp = NumVarOrDefault(":gRcantExp",3)
+	Variable/G gRcantExp= rcantExp
+	Variable manualCheck = NumVarOrDefault(":gManualCheck",NaN)
+	Variable/G gManualCheck= manualCheck
+	Variable OpA = NumVarOrDefault(":gOpA",NaN)
+	Variable/G gOpA= OpA
+	Variable IpA = NumVarOrDefault(":gIpA",NaN)
+	Variable/G gIpA= IpA
+	Variable vHeating = NumVarOrDefault(":gvHeating",NaN)
+	Variable/G gvHeating= vHeating
+		
+	// Create the control panel.
+	Execute "CircuitCheckPanel()"
+	//Reset the datafolder to the root / previous folder
+	SetDataFolder dfSave
+
+End
+
+
+Window CircuitCheckPanel(): Panel
+	
+	PauseUpdate; Silent 1		// building window...
+	NewPanel /K=1 /W=(485,145, 700,495) as "Heated Cantilever Circuit Check"
+	SetDrawLayer UserBack
+		
+	SetVariable sv_Rsense,pos={16,20},size={180,18},title="Rsense (kOhm)", limits={0,inf,1}
+	SetVariable sv_Rsense,value= root:packages:TemperatureControl:gRsense,live= 1
+	
+	SetVariable sv_Amplification,pos={16,52},size={180,18},title="Amplifier", limits={1,10,.01}
+	SetVariable sv_Amplification,value= root:packages:TemperatureControl:gAmplifier,live= 1
+	
+	SetVariable sv_RcantExp,pos={16,86},size={180,20},title="Expected R cant"
+	SetVariable sv_RcantExp, value=root:Packages:TemperatureControl:CircuitChecker:gRcantExp
+	
+	ValDisplay vd_Rcant,pos={16,120},size={180,20},title="R cant (k Ohm)"
+	ValDisplay vd_Rcant, value=root:Packages:TemperatureControl:CircuitChecker:gRcant
+	
+	Checkbox chk_AllowManual, pos = {16, 151}, size={10,10}, title="Manual Controls", proc=ManualCircuitCheck
+	Checkbox chk_AllowManual, live=1,value=root:packages:TemperatureControl:CircuitChecker:gManualCheck
+	
+	ValDisplay sv_Outpt,pos={45,211},size={154,18},title="Output.A (V)", limits={0,10,1}
+	ValDisplay sv_Outpt,live= 1,disable=1,value=root:packages:TemperatureControl:CircuitChecker:gOpA
+	
+	SetVariable vd_Vtot1,pos={45,177},size={154,20},title="V heating (V)", disable=1
+	SetVariable vd_Vtot1, value=root:Packages:TemperatureControl:CircuitChecker:gVheating
+	
+	ValDisplay vd_Sens,pos={45,245},size={154,20},title="Input.A (V)", live= 1,disable=1
+	ValDisplay vd_Sens, value=root:Packages:TemperatureControl:CircuitChecker:gIpA
+	
+	Button but_Check,pos={12,278},size={192,35},title="Check Circuit", proc=CheckWiring
+		
+	SetDrawEnv fstyle= 1 
+	SetDrawEnv fsize= 14
+	SetDrawEnv textrgb= (0,0,65280)
+	DrawText 16,345, "Suhas Somnath, UIUC 2010"
+		
+End	
+
+Function ManualCircuitCheck(cba) : CheckBoxControl
+	STRUCT WMCheckboxAction &cba
+
+	switch( cba.eventCode )
+		case 2: // mouse up
+			String dfSave = GetDataFolder(1)
+			SetDataFolder root:packages:TemperatureControl:CircuitChecker
+			NVAR gManualCheck
+			gManualCheck = cba.checked
+			SetDataFolder dfSave
+			if(gManualCheck)
+				ModifyControl sv_Outpt, disable=!gManualCheck
+				ModifyControl vd_Vtot1, disable=!gManualCheck
+				ModifyControl vd_Sens, disable=!gManualCheck
+			else
+				ModifyControl sv_Outpt, disable=1
+				ModifyControl vd_Vtot1, disable=1
+				ModifyControl vd_Sens, disable=1
+			endif
+			break
+	endswitch
+
+	return 0
+End
+
+Function CheckWiring(ctrlname) : ButtonControl
+	String ctrlName;
+	
 	CrossPointSetup(-1)
-	CheckWiring(0)
+
+	// In A must increase if Out A is increased.
+	// Will try two values (eg 2V and 5V) to see if BNC cables have been
+	// correctly set up.
+	
+	String dfSave = GetDataFolder(1)
+	
+	SetDataFolder root:packages:TemperatureControl
+	NVAR gRsense, gAmplifier, gWireChecked
+	
+	SetDataFolder root:packages:TemperatureControl:CircuitChecker
+	NVAR gRcant, gIpA, gOpA, gVHeating, gManualCheck, gRcantExp
+	
+	if(gManualCheck)
+		gOpA = gVHeating;
+	else
+		gOpA = 1;
+	endif
+	
+	gOpA = gOpA / gAmplifier;
+	td_WV("Output.A",gOpA);
+		
+	gIpA = 0;
+	gOpA = 0;
+	Variable count = 0;
+	Variable t0 = ticks
+	do
+		gIpA = gIpA + td_RV("Input.A");
+		gOpA = gOpA + td_RV("Input.B");
+		count = count+1;
+	while ((ticks - t0)/60 < 1)
+		
+	gIpA = gIpA/count;
+	gOpA = gOpA/count;
+	gRcant = (gAmplifier*gOpA - gIpA)/(gIpA/gRsense);
+		
+	SetIdleVoltage()
+	//print num2str(abs(gRcant/gRcantExp)-1)
+	if(abs(gRcant/gRcantExp)-1 < 0.1) // Must be within 10% of expected value
+		gWireChecked = 1;
+		DoAlert 0,"Connections OK"
+	else
+		DoAlert 0,"Cantilever improperly connected!\nConnect Vtotal to controller front panel \n2. Connect Vsense and Vtotal to the Voltage Connector box not the front panel of the controller. \n3. Use expansion cable to connect controller to Voltage Follwer circuit box"
+	endif
+	
+	SetDataFolder dfSave
+			
 End
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -191,6 +358,10 @@ Function TempContMeterDriver()
 	String dfSave = GetDataFolder(1)
 	// Create a data folder in Packages to store globals.
 	NewDataFolder/O/S root:packages:TemperatureControl
+	
+	Variable Amplifier = NumVarOrDefault(":gAmplifier",1)
+	Variable/G gAmplifier= Amplifier
+		
 	NewDataFolder/O/S root:packages:TemperatureControl:Meter
 	
 	//Variables declaration
@@ -200,7 +371,8 @@ Function TempContMeterDriver()
 	Variable/G gVtot = 0
 	Variable/G gVcant = 0;
 	Variable/G gRunMeter = 1
-		
+	Variable/G gVoltClip = 0;
+			
 	ReInitializeThermalMeterPanel("")
 	
 	//Reset the datafolder to the root / previous folder
@@ -221,21 +393,61 @@ Function ReInitializeThermalMeterPanel(ctrlname) : ButtonControl
 
 	// Setting up all the backend wiring:
 	SetupVcantAlias()
-	forceLateral()
+	//forceLateral()
 	ThermalPIDSetup()
 	setLinearCombo()
-	td_wv("output.A",0.5)
+	SetIdleVoltage()
 		
 	// Starting background process here:
 	RestartThermalMeterPanel("")
 	
 End
 
+Function DisconnectOutput(ctrlname) : ButtonControl
+	String ctrlname
+
+	// Set DAC Output to 0
+	td_WV("Output.A",0);
+	
+	// Reset the Output BNC 
+	//XPTBoxFunc(XPTLock10Box_0,1)
+	WireXpt("BNCOut0Popup","Ground")	
+	XptButtonFunc("WriteXPT")
+	
+	// Don't want to turn on and off the meter itself. Doesn't restart properly with Refresh
+	// String dfSave = GetDataFolder(1)
+	// SetDataFolder root:packages:TemperatureControl:Meter
+	// NVAR gRunMeter
+	// gRunMeter = 0; // Meter need not run.
+	// SetDataFolder dfSave;
+	
+	// All this work is undone simply by closing and reopening the MeterPanel
+	// Need to add a status bit for whether the heating was turned off manually
+	
+	
+End
+
+
+
+Function SetIdleVoltage()
+	String dfSave = GetDataFolder(1)
+	
+	SetDataFolder root:packages:TemperatureControl
+	NVAR gAmplifier
+	
+	Variable idleVoltage = 0.5;
+	
+	td_wv("output.A",idleVoltage/gAmplifier);
+	
+	SetDataFolder dfSave
+End
+
+
 
 Window TempContMeterPanel(): Panel
 	
 	PauseUpdate; Silent 1		// building window...
-	NewPanel /K=1 /W=(485,145, 1000,335) as "Temperature Control Meter"
+	NewPanel /K=1 /W=(485,145, 1035,335) as "Temperature Control Meter"
 	SetDrawLayer UserBack
 	
 	ValDisplay vd_Rcant,pos={16,16},size={385,20},title="R cant (k Ohm)", mode=0
@@ -260,15 +472,26 @@ Window TempContMeterPanel(): Panel
 	
 	ValDisplay vd_statusLED, value=str2num(root:packages:MFP3D:Main:PIDSLoop[%Status][5])
 	ValDisplay vd_statusLED, mode=2, limits={-1,1,0}, highColor= (0,65280,0), zeroColor= (65280,65280,16384)
-	ValDisplay vd_statusLED, lowColor= (65280,0,0), pos={433,59},size={52,52}, barmisc={0,0}
+	ValDisplay vd_statusLED, lowColor= (65280,0,0), pos={523,17},size={19,19}, barmisc={0,0}
+	
+	ValDisplay vd_VoltClipLED, value=root:Packages:TemperatureControl:Meter:gVoltClip
+	ValDisplay vd_VoltClipLED, mode=2, limits={0,1,0}, lowColor= (0,65280,0), zeroColor= (0,65280,0)
+	ValDisplay vd_VoltClipLED, highColor= (65280,0,0), pos={523,158},size={19,19}, barmisc={0,0}
+	
+	ValDisplay vd_MeterStatusLED, value=root:Packages:TemperatureControl:Meter:gRunMeter
+	ValDisplay vd_MeterStatusLED, mode=2, limits={0,1,0}, highColor= (0,65280,0), zeroColor= (65280,0,0)
+	ValDisplay vd_MeterStatusLED, lowColor= (65280,0,0), pos={523,43},size={19,19}, barmisc={0,0}
 
 	SetDrawEnv fsize=18
-	DrawText 443,33, "PID"
+	DrawText 428,36, "PID Status"
 	SetDrawEnv fsize=18
-	DrawText 433,54, "Status"
+	DrawText 426,178, "Vtot Status"
+	SetDrawEnv fsize=18
+	DrawText 412,63, "Meter Status"
 	
-	Button but_refresh,pos={429,154},size={59,27},title="Refresh", proc=RestartThermalMeterPanel
-	Button but_reinit,pos={419,121},size={79,27},title="Reinitialize", proc=ReinitializeThermalMeterPanel
+	Button but_refresh,pos={450,96},size={59,27},title="Refresh", proc=RestartThermalMeterPanel
+	Button but_reinit,pos={440,66},size={79,27},title="Reinitialize", proc=ReinitializeThermalMeterPanel
+	Button but_PowOff,pos={410,126},size={138,27},title="Disconnect Cantilever", proc=DisconnectOutput
 
 End
 
@@ -277,9 +500,9 @@ Function bgThermalMeter()
 	String dfSave = GetDataFolder(1)
 	
 	SetDataFolder root:packages:TemperatureControl
-	NVAR gRsense
+	NVAR gRsense, gAmplifier
 	SetDataFolder root:packages:TemperatureControl:Meter
-	NVAR gRcant, gPcant, gIcant, gRunMeter, gVtot, gVcant
+	NVAR gRcant, gPcant, gIcant, gRunMeter, gVtot, gVcant, gVoltClip
 	
 	Variable Vsense = td_RV("Input.A") //td_RV("Input.A")
 	
@@ -288,6 +511,14 @@ Function bgThermalMeter()
 	//Variable Vsense = td_RV("UserIn0") //td_RV("Input.A")
 	
 	//gVtot = td_RV("UserIn1"); // NOT using lateral here
+	
+	if(gVtot > 9.7) // DAC can only output up to 9.7 V
+		gVoltClip = 1;
+	else
+		gVoltClip = 0;
+	endif
+	
+	gVtot = gVtot * gAmplifier;
 	
 	gVcant = gVtot - Vsense
 	gIcant = Vsense / gRsense // in mA
@@ -307,22 +538,31 @@ End
 
 Function ThermalImagingDriver()
 	
+	String dfSave = GetDataFolder(1)
+	
+	// Create a data folder in Packages to store globals.
+	NewDataFolder/O/S root:packages:TemperatureControl
+		
+	Variable rsense = NumVarOrDefault(":gRsense",0.98)
+	Variable/G gRsense= rsense
+	Variable wireChecked = NumVarOrDefault(":gWireChecked",0)
+	Variable/G gWireChecked = wireChecked
+	Variable Amplifier = NumVarOrDefault(":gAmplifier",1)
+	Variable/G gAmplifier= Amplifier
+	
+	if(wireChecked == 0)
+		//Check to make sure cables are properly plugged in:
+		DoAlert 0, "Your electrical connections have not been checked.\n Please verify them using: \nUIUC >> Heated Cantilever Suite >> Connection Checker"
+		CircuitCheckDriver()
+		//return
+	endif
+	
 	// If the panel is already created, just bring it to the front.
 	DoWindow/F ThermalImagingPanel
 	if (V_Flag != 0)
 		return 0
 	endif
-	
-	String dfSave = GetDataFolder(1)
-	
-	// Create a data folder in Packages to store globals.
-	NewDataFolder/O/S root:packages:TemperatureControl
-	
-	Variable rsense = NumVarOrDefault(":gRsense",0.98)
-	Variable/G gRsense= rsense
-	Variable wireChecked = NumVarOrDefault(":gWireChecked",0)
-	Variable/G gWireChecked = wireChecked
-	
+		
 	NewDataFolder/O/S root:packages:TemperatureControl:Imaging
 	
 	//Variables declaration
@@ -331,19 +571,14 @@ Function ThermalImagingDriver()
 	//This will form the setpoint for z - height
 	Variable vcant = NumVarOrDefault(":gVcant",3)
 	Variable/G gVcant= vcant
-	String /G gScanModeNames = "Contact;AC mode;Thermal"
+	String /G gScanModeNames = "Contact;AC mode"//;Thermal"
 	Variable/G gScanMode = 1 // Contact, 2 for tapping, 3 for thermal
 	String /G gZfeedbackChannel = "Input.A" //"Lateral"
-	
+			
 	ThermalPIDSetup()
 	setLinearCombo()
 	SetupVcantAlias()
 	SetupVcantWindow()
-	
-	if(wireChecked == 0)
-		//Check to make sure cables are properly plugged in:
-		CheckWiring(1)
-	endif
 	
 	TempContMeterDriver()
 	
@@ -358,7 +593,7 @@ End
 Window ThermalImagingPanel(): Panel
 	
 	PauseUpdate; Silent 1		// building window...
-	NewPanel /K=1 /W=(485,145, 700,364) as "Thermal Imaging Panel"
+	NewPanel /K=1 /W=(485,145, 700,390) as "Thermal Imaging Panel"
 	SetDrawLayer UserBack
 		
 	SetVariable sv_Rsense,pos={16,20},size={180,18},title="Rsense (kOhm)", limits={0,inf,1}
@@ -373,17 +608,21 @@ Window ThermalImagingPanel(): Panel
 	SetVariable sv_VcantSetpoint,value= root:packages:TemperatureControl:Imaging:gVcant,live= 1//,disable=2
 	SetVariable sv_VcantSetpoint,proc=UpdateThermalSetpoint, disable=2
 	
-	Button but_start,pos={17,152},size={65,26},title="Start PID", proc=StartImagingPID
-	Button but_stop,pos={131,152},size={65,26},title="Stop PID", proc=StopImagingPID
+	Button but_start,pos={17,183},size={65,26},title="Start PID", proc=StartImagingPID
+	Button but_stop,pos={131,183},size={65,26},title="Stop PID", proc=StopImagingPID
+	
+	SetVariable sv_Amplification,pos={16,147},size={180,18},title="Amplifier", limits={1,10,.01}
+	SetVariable sv_Amplification,value= root:packages:TemperatureControl:gAmplifier,live= 1
 		
 	ValDisplay vd_statusLED, value=str2num(root:packages:MFP3D:Main:PIDSLoop[%Status][5])
 	ValDisplay vd_statusLED, mode=2, limits={-1,1,0}, highColor= (0,65280,0), zeroColor= (65280,65280,16384)
-	ValDisplay vd_statusLED, lowColor= (65280,0,0), pos={94,157},size={20,20}, bodyWidth=20, barmisc={0,0}
+	ValDisplay vd_statusLED, lowColor= (65280,0,0), pos={94,186},size={20,20}, bodyWidth=20, barmisc={0,0}
 		
 	SetDrawEnv fstyle= 1 
 	SetDrawEnv fsize= 14
 	SetDrawEnv textrgb= (0,0,65280)
-	DrawText 14,210, "Suhas Somnath, UIUC 2010"
+	DrawText 14,239, "Suhas Somnath, UIUC 2010"
+		
 End	
 
 Function ScanModeProc(pa) : PopupMenuControl
@@ -552,20 +791,45 @@ Function startImagingPID(ctrlname) : ButtonControl
 	PIDPanelButtonFunc("Read",5)	
 End
 
+// This is just Vsense being displayed on the screen. User takes full responsibility of calculating the actual Vcant
+// with the appropriate signal manipulation. Will try to replace this with a UserCalc channel <-- Lot more work
 Function setUpVcantWindow()
+
+	Variable chanIndx = 1;
+	Variable freeChan = 6;
+	for(chanIndx =1; chanIndx<6; chanIndx=chanIndx+1)
+		if( WhichListItem("UserIn0", DataTypeFunc(chanindx))==0)
+			//print "it is channel number " + num2str(chanindx)
+			break;
+		elseif( WhichListItem("Off", DataTypeFunc(chanindx))==0)
+			//print "Channel #" + num2str(chanindx) + " was Off"
+			freeChan = min(freeChan, chanIndx)
+		endif
+	Endfor
+	// Case 1 - UserIn0 already present. chanIndx already set. Don't do anything now
 	
-	// Channel 5:
-	Variable popnum = WhichListItem("Lateral", DataTypeFunc(5))
-	if(popnum < 0)
-		// Lateral already being displayed
-		// dont bother
-		return -1
+	if(chanIndx > 5)
+		// Case 2 - Userin0 NOT already present but empty channel available
+		if(freeChan < 5)
+			chanIndx = freeChan
+		else
+		// Case 3 - Userin0 NOT present and all channels taken. FORCE last channel with message (Unlikely)
+			chanIndx = 5;
+			DoAlert 0,"No empty channels found\nOverriding Channel 5 to display Vsense"
+		endif
 	endif
-	SetDataTypePopupFunc("Channel5DataTypePopup_5",popNum,"Lateral") // sets the channel acquired into the graph:
-	SetPlanefitPopupFunc("Channel5RealPlanefitPopup_5",4,"Masked Line") // for the live flatten
-	SetPlanefitPopupFunc("Channel5SavePlanefitPopup_5",4,"Flatten 0") // for the save flatten
-	ShowWhatPopupFunc("Channel5CapturePopup_5",4,"Both")
 	
+	DoAlert 0,"CAUTION:\nVsense will be displayed to you\n It is your responsibility to calculate Vcant\nMake a note of all necessary parameters"
+
+	// By now, a channel has been decided for Usein0. Just configure it.
+	Variable popnum = WhichListItem("UserIn0", DataTypeFunc(5))
+	
+	SetDataTypePopupFunc("Channel" + num2str(chanIndx) + "DataTypePopup_" + num2str(chanIndx) ,popNum,"UserIn0") // sets the channel acquired into the graph:
+	SetPlanefitPopupFunc("Channel" + num2str(chanIndx) + "RealPlanefitPopup_" + num2str(chanIndx),4,"Masked Line") // for the live flatten
+	SetPlanefitPopupFunc("Channel" + num2str(chanIndx) + "SavePlanefitPopup_" + num2str(chanIndx),1,"None") // for the save flatten
+	ShowWhatPopupFunc("Channel" + num2str(chanIndx) + "CapturePopup_" + num2str(chanIndx),4,"Both")
+	SetChannelColorMap("Channel" + num2str(chanIndx) + "1ColorMapPopup_" + num2str(chanIndx),29,"VioletOrangeYellow")
+
 End
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -573,12 +837,6 @@ End
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 Function ThermalLithoDriver()
-	
-	// If the panel is already created, just bring it to the front.
-	DoWindow/F ThermalLithographyPanel
-	if (V_Flag != 0)
-		return 0
-	endif
 	
 	String dfSave = GetDataFolder(1)
 	// Create a data folder in Packages to store globals.
@@ -588,6 +846,21 @@ Function ThermalLithoDriver()
 	Variable/G gRsense= rsense
 	Variable wireChecked = NumVarOrDefault(":gWireChecked",0)
 	Variable/G gWireChecked = wireChecked
+	Variable Amplifier = NumVarOrDefault(":gAmplifier",1)
+	Variable/G gAmplifier= Amplifier
+	
+	//Check to make sure cables are properly plugged in:
+	if(wireChecked==0)
+		DoAlert 0, "Your electrical connections have not been checked.\n Please verify them using: \nUIUC >> Heated Cantilever Suite >> Connection Checker"		
+		CircuitCheckDriver()
+		//return;
+	endif
+		
+	// If the panel is already created, just bring it to the front.
+	DoWindow/F ThermalLithographyPanel
+	if (V_Flag != 0)
+		return 0
+	endif
 	
 	NewDataFolder/O/S root:packages:TemperatureControl:Lithography
 	
@@ -617,11 +890,6 @@ Function ThermalLithoDriver()
 	
 	ThermalPIDSetup()
 	
-	//Check to make sure cables are properly plugged in:
-	if(wireChecked==0)
-		CheckWiring(1)
-	endif
-	
 	TempContMeterDriver()	
 	
 	//Reset the datafolder to the root / previous folder
@@ -632,7 +900,7 @@ End
 Window ThermalLithoPanel(): Panel
 	
 	PauseUpdate; Silent 1		// building window...
-	NewPanel /K=1 /W=(485,145, 733,473) as "Thermal Lithography Panel"
+	NewPanel /K=1 /W=(485,145, 700,515) as "Thermal Lithography Panel"
 	SetDrawLayer UserBack
 		
 	SetVariable sv_Rsense,pos={16,20},size={180,18},title="R Sense (kOhm)", limits={0,inf,1}
@@ -645,24 +913,27 @@ Window ThermalLithoPanel(): Panel
 	// Ramp parameters:
 	Checkbox chk_AllowRamping, pos = {23, 115}, size={10,10}, title="Ramp Temperature", proc=AllowRampedHeating
 	Checkbox chk_AllowRamping, live=1,value=root:packages:TemperatureControl:Lithography:gDoRamp
-	SetVariable sv_Rstep,pos={42,145},size={180,18},title="R step (kOhm)", limits={0,inf,1}
+	SetVariable sv_Rstep,pos={55,145},size={142,18},title="R step (kOhm)", limits={0,inf,1}
 	SetVariable sv_Rstep,live= 1,disable=2,value=root:packages:TemperatureControl:Lithography:gRstep
-	SetVariable sv_tstep,pos={42,178},size={180,18},title="t step (sec)", limits={0,inf,1}
+	SetVariable sv_tstep,pos={55,178},size={142,18},title="t step (sec)", limits={0,inf,1}
 	SetVariable sv_tstep,live= 1,disable=2, value=root:packages:TemperatureControl:Lithography:gtStep
-	SetVariable sv_Rmax,pos={42,213},size={180,18},title="R max (kOhm)", limits={0,inf,1}
+	SetVariable sv_Rmax,pos={55,213},size={142,18},title="R max (kOhm)", limits={0,inf,1}
 	SetVariable sv_Rmax,live= 1,disable=2, value=root:packages:TemperatureControl:Lithography:gRmax
 	
-	Button but_start,pos={16,253},size={75,28},title="Start PID", proc=ThermalLithoButtonFunc,live= 1
-	Button but_stop,pos={142,253},size={75,28},title="Stop PID", proc=ThermalLithoButtonFunc,live= 1//, disable=2
+	SetVariable sv_Amplification,pos={16,251},size={180,18},title="Amplifier", limits={1,10,.01}
+	SetVariable sv_Amplification,value= root:packages:TemperatureControl:gAmplifier,live= 1
+	
+	Button but_start,pos={16,287},size={75,28},title="Start PID", proc=ThermalLithoButtonFunc,live= 1
+	Button but_stop,pos={131,287},size={75,28},title="Stop PID", proc=ThermalLithoButtonFunc,live= 1//, disable=2
 	
 	ValDisplay vd_statusLED, value=str2num(root:packages:MFP3D:Main:PIDSLoop[%Status][5])
 	ValDisplay vd_statusLED, mode=2, limits={-1,1,0}, highColor= (0,65280,0), zeroColor= (65280,65280,16384)
-	ValDisplay vd_statusLED, lowColor= (65280,0,0), pos={101,256},size={20,20}, bodyWidth=20, barmisc={0,0}
+	ValDisplay vd_statusLED, lowColor= (65280,0,0), pos={101,290},size={20,20}, bodyWidth=20, barmisc={0,0}
 	
 	SetDrawEnv fstyle= 1
 	SetDrawEnv fsize= 14
 	SetDrawEnv textrgb= (0,0,65280)
-	DrawText 30,313, "Suhas Somnath, UIUC 2010"
+	DrawText 18,351, "Suhas Somnath, UIUC 2010"
 	
 End
 
@@ -881,13 +1152,7 @@ End
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 Function IVCharDriver()
-	
-	// If the panel is already created, just bring it to the front.
-	DoWindow/F IVCharPanel
-	if (V_Flag != 0)
-		return 0
-	endif
-	
+		
 	String dfSave = GetDataFolder(1)
 	
 	// Create a data folder in Packages to store globals.
@@ -897,6 +1162,21 @@ Function IVCharDriver()
 	Variable/G gRsense= rsense
 	Variable wireChecked = NumVarOrDefault(":gWireChecked",0)
 	Variable/G gWireChecked = wireChecked
+	Variable Amplifier = NumVarOrDefault(":gAmplifier",1)
+	Variable/G gAmplifier= Amplifier
+	
+	//Check to make sure cables are properly plugged in:
+	if(wireChecked == 0)
+		DoAlert 0, "Your electrical connections have not been checked.\n Please verify them using: \nUIUC >> Heated Cantilever Suite >> Connection Checker"		
+		CircuitCheckDriver()
+		//return;
+	endif
+	
+	// If the panel is already created, just bring it to the front.
+	DoWindow/F IVCharPanel
+	if (V_Flag != 0)
+		return 0
+	endif
 	
 	NewDataFolder/O/S root:packages:TemperatureControl:IVChar
 	
@@ -914,6 +1194,7 @@ Function IVCharDriver()
 	Variable showTable = NumVarOrDefault(":gshowTable",1)
 	Variable/G gshowTable= showTable
 	Variable/G gProgress = 0
+	Variable/G gClippedRead=0
 	Variable/G gAbortIV = 1
 	
 	Make/O/N=(2) Vtotalwave
@@ -923,14 +1204,10 @@ Function IVCharDriver()
 	Make/O/N=(2) Pcantwave
 	Make/O/N=(2) Icantwave
 	//Reset the datafolder to the root / previous folder
+	
 	SetDataFolder dfSave
 	
 	CrossPointSetup(-1)	
-
-	//Check to make sure cables are properly plugged in:
-	if(wireChecked == 0)
-		CheckWiring(1)
-	endif
 	
 	// Create the control panel.
 	Execute "IVCharPanel()"
@@ -956,20 +1233,23 @@ Window IVCharPanel(): Panel
 	ValDisplay sv_steps,pos={52,57},size={115,18},title="Num steps"
 	ValDisplay sv_steps,value= root:packages:TemperatureControl:IVChar:gNumSteps,live= 1
 	
-	SetVariable vd_VFinal,pos={332,20},size={109,20},title="V Final (V)", proc=IVSetVarProc, limits={0,10,1}
+	SetVariable vd_VFinal,pos={332,20},size={109,20},title="V Final (V)", proc=IVSetVarProc, limits={0,inf,1}
 	SetVariable vd_VFinal,value= root:packages:TemperatureControl:IVChar:gVFinal,live= 1
 	
 	SetVariable sv_tDelay,pos={192,57},size={120,18},title="Delay (sec)", limits={0,inf,1}
 	SetVariable sv_tDelay,value= root:packages:TemperatureControl:IVChar:gDelay,live= 1
 	
-	Button but_start,pos={468,18},size={80,25},title="Start", proc=StartIVChar2
-	Button but_stop,pos={468,50},size={80,25},title="Stop", proc=StopIVChar
+	Button but_start,pos={465,18},size={67,25},title="Start", proc=StartIVChar2
+	Button but_stop,pos={465,50},size={67,25},title="Stop", proc=StopIVChar
 	
-	ValDisplay vd_Progress,pos={576,23},size={214,20},title="Progress", mode=0, live=1
+	SetVariable sv_Amplification,pos={555,51},size={115,18},title="Amplifier", limits={1,10,.01}
+	SetVariable sv_Amplification,value= root:packages:TemperatureControl:gAmplifier,live= 1
+	
+	ValDisplay vd_Progress,pos={554,23},size={236,20},title="Progress", mode=0, live=1
 	ValDisplay vd_Progress,limits={0,100,0},barmisc={0,40},highColor= (0,43520,65280)
 	ValDisplay vd_Progress, fsize=14, value=root:Packages:TemperatureControl:IVChar:GProgress
 	
-	Checkbox chk_ShowData, pos = {646, 51}, size={10,10}, title="Show Data", proc=ShowDataChkFun
+	Checkbox chk_ShowData, pos = {708, 51}, size={10,10}, title="Show Data", proc=ShowDataChkFun
 	Checkbox chk_ShowData, live=1, value=root:Packages:TemperatureControl:IVChar:gshowTable
 	
 	String dfSave= GetDataFolder(1)
@@ -1083,6 +1363,7 @@ Function StartIVChar2(ctrlname) : ButtonControl
 	Variable/G gVsenseTotal = 0
 	Variable/G gVtotTotal = 0
 	Variable/G gNumMeasurements = 0
+	Variable/G gClippedRead = 0
 	
 	NVAR gNumsteps
 	
@@ -1101,14 +1382,21 @@ Function bgIVFun()
 
 	String dfSave = GetDataFolder(1)
 	
-	SetDataFolder root:Packages:TemperatureControl:IVChar
-	NVAR gAbortIV
+	SetDataFolder root:packages:TemperatureControl
+	NVAR gAmplifier
 	
-	if(gAbortIV == 1)
-		td_WV("Output.A",0.5)
+	SetDataFolder root:Packages:TemperatureControl:IVChar
+	NVAR gAbortIV, gClippedRead
+	
+	if(gAbortIV || gClippedRead)
+		SetidleVoltage()
 		SetDataFolder dfSave
 		ModifyControl but_start, disable=0, title="Start"
 		gAbortIV = 0;
+		if(gClippedRead)
+			print "came here"
+			DoAlert 0,"I-V aborted: Either UserIn0 or UserIn1 exceeded 10 V\nCheck your circuit / I-V parameters"
+		endif
 		return 1;
 	endif
 	
@@ -1116,7 +1404,7 @@ Function bgIVFun()
 	NVAR gIterStartTick
 	if(gIterStartTick == 0)
 		NVAR gVinitial, gVstep
-		td_WV("Output.A",gVinitial + 0*gVstep)
+		td_WV("Output.A",(gVinitial + 0*gVstep)/gAmplifier)
 		gIterStartTick = ticks
 		SetDataFolder dfSave
 		//print("very first IV")
@@ -1132,7 +1420,7 @@ Function bgIVFun()
 			// Case 2: Same iteration 
 			// take another measurement
 			gVsenseTotal += td_RV("Input.A")
-			gVtotTotal += td_RV("Input.B")
+			gVtotTotal += td_RV("Input.B")*gAmplifier // Measuring before amplification (obviously)
 			gNumMeasurements += 1
 			SetDataFolder dfSave
 			//print("Grabbing more data")
@@ -1151,13 +1439,37 @@ Function bgIVFun()
 			
 			//print "Took " + num2str(gNumMeasurements) + " measurements"
 		
-			//VtotalWave[gIteration] = gVinitial + gIteration*gVstep
-			VtotalWave[gIteration] = gVtotTotal / gNumMeasurements
-			VsenseWave[gIteration] = gVsenseTotal / gNumMeasurements
-			VcantWave[gIteration] =  VTotalWave[gIteration] - VsenseWave[gIteration]
-			IcantWave[gIteration] =VsenseWave[gIteration] / gRsense // in mA
+			gVtotTotal = gVtotTotal / gNumMeasurements
+			gVsenseTotal = gVsenseTotal / gNumMeasurements
+			
+			VtotalWave[gIteration] = gVtotTotal
+			VsenseWave[gIteration] = gVsenseTotal
+			IcantWave[gIteration] =gVsenseTotal / gRsense // in mA
+			
+			/////////////////////////////////// ORIGINAL CALCULATION /////////////////////////////////////////////
+			VcantWave[gIteration] =  gVtotTotal - gVsenseTotal
 			RcantWave[gIteration] = VcantWave[gIteration] / IcantWave[gIteration]
 			PcantWave[gIteration] = VcantWave[gIteration] * IcantWave[gIteration]
+			/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			
+			
+			/////////////////////////////////// HIGH RS CALCULATION /////////////////////////////////////////////
+			//Variable Rtot = gVtotTotal/IcantWave[gIteration];
+			//print "Rtot = " + num2str(Rtot)
+			
+			//Variable RsMain = 47.35; // (kOhms) Enter manually here for now.
+			//RcantWave[gIteration] = Rtot - (RsMain + gRsense);
+			//VcantWave[gIteration] =  RcantWave[gIteration] * IcantWave[gIteration]
+			//PcantWave[gIteration] = VcantWave[gIteration] * IcantWave[gIteration]
+			/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			
+			
+			
+			// Raise flag if any of the ADCs was saturated
+			gVtotTotal = gVtotTotal/gAmplifier
+			if(gVtotTotal >= 9.8 || gVsenseTotal > 9.8)
+				gClippedRead = 1;
+			endif
 			
 			// b. advance iteration & progress		
 			gNumMeasurements = 0;
@@ -1172,7 +1484,7 @@ Function bgIVFun()
 			if(gIteration <= gNumsteps)
 			
 				// start next iteration
-				td_WV("Output.A",gVinitial + gIteration*gVstep)
+				td_WV("Output.A",(gVinitial + gIteration*gVstep)/gAmplifier)
 				gIterStartTick = ticks
 				SetDataFolder dfSave
 				//print("moving to next iteration")
@@ -1184,7 +1496,9 @@ Function bgIVFun()
 				//gIterStartTick = 0
 				NVAR gShowTable
 				SetDataFolder dfSave
-				td_WV("Output.A",0.5)
+				
+				SetidleVoltage()
+
 				//print("IV calibration complete")
 				if(gShowTable)
 					//print "Displaying Table"
@@ -1220,8 +1534,13 @@ Function SetPID(pgain)
 	pgain = 1+ pgain;
 	
 	String dfSave = GetDataFolder(1)
+
 	SetDataFolder root:packages:TemperatureControl
 	Wave/T parms
+	NVAR gAmplifier
+	 
+	pgain = pgain/gAmplifier;
+	
 	// only modify Pgain and status
 	parms[6] = num2str(pgain)
 	parms[13] = "0"
@@ -1250,7 +1569,7 @@ Function StopPID()
 	endif
 	
 	//Safety Cutoff
-	td_WV("Output.A",0.5)	
+	SetidleVoltage()
 	PIDPanelButtonFunc("Read",5)
 	
 End
@@ -1287,7 +1606,17 @@ Function setLinearCombo()
 	
 	Make/N=(2)/O coeffWave
 	coeffWave = {0,-1}
-	td_SetLinearCombo("Input.A", coeffWave, "Output.A")
+	// coeffWave = {b,a}
+	// z = y + ax+b
+	// z = Output.A + -1*Input.A
+	// z = Vtotal - Vsense
+	// Make it:
+	// z = Amplifier*Vtotal - Vsense
+	// Closest is the inverse: z = Vsense + (-gAmplifier)*Vtotal
+	// Vtotal isn't even that accurate. Why bother? Just rely on Input.0 and scale carefully.
+	
+	// Use SetDetrend before combo
+	td_SetLinearCombo("Input.A", coeffWave, "Input.B")
 			
 	SetDataFolder DfSave
 End
@@ -1373,63 +1702,7 @@ Function CrossPointSetup(scanmode)
 	 // seems to annul all the changes made so far if I used td_WS
 	
 	//Positive voltage out of Output channel:
-	td_WV("Output.A",0.5)
-End
-
-Function CheckWiring(displayDialog)
-	Variable displayDialog
-	// This will be executed AFTER the PID has been set up
-	// In A must increase if Out A is increased.
-	// Will try two values (eg 2V and 5V) to see if BNC cables have been
-	// correctly set up.
-	if(displayDialog)
-		DoAlert 1,"Do you want me to check if all electrical connections\nhave correctly been wired?\n(Strongly Recommended)"
-		//DoAlert 0,"1. Connect Vtotal to controller front panel \n2. Connect Vsense to the Voltage Connector box not the front panel of the controller. \n3. Use expansion cable to connect controller to Voltage Follwer circuit box"
-		if(V_flag!=1)
-			// No or cancel clicked
-			return -1
-		endif
-	endif
-	
-	td_WV("Output.A",2)
-		
-	// wait for a second or so
-	Variable t0 = ticks
-	do
-	while ((ticks - t0)/60 < 0.25)
-	
-	Variable in1 = td_RV("Input.A")
-	
-	td_WV("Output.A",5)
-		
-	// wait for a second or so
-	t0 = ticks
-	do
-	while ((ticks - t0)/60 < 0.25)
-	
-	Variable in2 = td_RV("Input.A")
-	
-	// Almost shut off the voltage supply
-	
-	td_WV("Output.A",0.5)
-	
-	//print "in1 = " + num2str(in1) + ", in2 = " + num2str(in2)
-	
-	if(in2 > (in1+0.15) && in1 > 0.1)
-		DoAlert 0,"Connections ok!"
-		
-		// Commit this check to memory:
-		String dfSave = GetDataFolder(1)
-		NewDataFolder/O/S root:packages:TemperatureControl
-		Variable wireChecked = NumVarOrDefault(":gWireChecked",0)
-		Variable/G gWireChecked = 1
-		SetDataFolder dfSave
-		
-	else
-		DoAlert 0,"Cantilever improperly connected!\nConnect Vtotal to controller front panel \n2. Connect Vsense and Vtotal to the Voltage Connector box not the front panel of the controller. \n3. Use expansion cable to connect controller to Voltage Follwer circuit box"
-	endif
-	
-	
+	SetidleVoltage()
 End
 
 Function WireXpt(whichpopup,channel)
@@ -1465,14 +1738,68 @@ Function PIDPanelButtonFunc(action, loop)
 	PIDSLoopButtonFunc(InfoStruct)
 End
 
-Function forceLateral()
-	MeterPopupFunc("LateralPopup",3,"On")
-	MeterPanelSetup("MeterSetupDone")
-End
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////// DISCARDED FUNCTIONS ///////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+Function CheckWiringOLD(displayDialog)
+	Variable displayDialog
+	// This will be executed AFTER the PID has been set up
+	// In A must increase if Out A is increased.
+	// Will try two values (eg 2V and 5V) to see if BNC cables have been
+	// correctly set up.
+	if(displayDialog)
+		DoAlert 1,"Do you want me to check if all electrical connections have correctly been wired?\t\t(Strongly Recommended)\nThis check will apply 2*amplification volts, so select NO if you have an amplifier connected or if the cantilever / sense resistances are large"
+		//DoAlert 0,"1. Connect Vtotal to controller front panel \n2. Connect Vsense to the Voltage Connector box not the front panel of the controller. \n3. Use expansion cable to connect controller to Voltage Follwer circuit box"
+		if(V_flag!=1)
+			// No or cancel clicked
+			return -1
+		endif
+	endif
+	
+	td_WV("Output.A",1)
+		
+	// wait for a second or so
+	Variable t0 = ticks
+	do
+	while ((ticks - t0)/60 < 0.25)
+	
+	Variable in1 = td_RV("Input.A")
+	
+	// Don't want to output too much -> 
+	// If an amplifier is being used 
+	td_WV("Output.A",2)
+		
+	// wait for a second or so
+	t0 = ticks
+	do
+	while ((ticks - t0)/60 < 0.25)
+	
+	Variable in2 = td_RV("Input.A")
+	
+	// Almost shut off the voltage supply
+	
+	SetidleVoltage()
+	
+	//print "in1 = " + num2str(in1) + ", in2 = " + num2str(in2)
+	
+	if(in2 > (in1+0.15) && in1 > 0.1)
+		DoAlert 0,"Connections ok!"
+		
+		// Commit this check to memory:
+		String dfSave = GetDataFolder(1)
+		NewDataFolder/O/S root:packages:TemperatureControl
+		Variable wireChecked = NumVarOrDefault(":gWireChecked",0)
+		Variable/G gWireChecked = 1
+		SetDataFolder dfSave
+		
+	else
+		DoAlert 0,"Cantilever improperly connected!\nConnect Vtotal to controller front panel \n2. Connect Vsense and Vtotal to the Voltage Connector box not the front panel of the controller. \n3. Use expansion cable to connect controller to Voltage Follwer circuit box"
+	endif
+	
+	
+End
 
 // This method still works but it causes Igor to freeze while measurements take place
 // IV calibration cannot be stopped. Nothing else may be performed
@@ -1535,7 +1862,7 @@ Function StartIVChar(ctrlname) : ButtonControl
 	
 	ModifyControl but_start, disable=0, title="Start"
 	
-	td_WV("Output.A",0.5)
+	SetidleVoltage()
 	
 End
 
@@ -1556,45 +1883,6 @@ Function RefreshGraphs()
 	
 End
 
-// No need to use this anymore. 
-// See SetUpVcantWindow
-Function setUpImagingWindows()
-	// Setting the viewing / acquiring channels:
-	// Channels 3,4 will acquire Vsense and Vtotal for the sake of Vcant (channel 5)
-	
-	// Channel 5:
-	Variable popnum = WhichListItem("Vcant", DataTypeFunc(5))
-	if(popnum < 0)
-		SetUpUserCalc()
-	endif
-	if(popnum < 0)
-		DoAlert 0, "Error! \n The function - 'Vcant' was not found in UserCalculated.ipf"
-		return -1
-	endif
-	SetDataTypePopupFunc("Channel5DataTypePopup_5",popNum,"Vcant") // sets the channel acquired into the graph:
-	SetPlanefitPopupFunc("Channel5RealPlanefitPopup_5",4,"Masked Line") // for the live flatten
-	SetPlanefitPopupFunc("Channel5SavePlanefitPopup_5",4,"Flatten 0") // for the save flatten
-	ShowWhatPopupFunc("Channel5CapturePopup_5",4,"Both")
-	
-	// Would be very nice If there would be some way to avoid having to waste two channels like this:
-	
-	// Channel 4:
-	popnum = WhichListItem("UserIn1", DataTypeFunc(4))
-	SetDataTypePopupFunc("Channel4DataTypePopup_4",popNum,"UserIn1") // sets the channel acquired into the graph:
-	SetPlanefitPopupFunc("Channel4RealPlanefitPopup_4",1,"None") // for the live flatten
-	SetPlanefitPopupFunc("Channel4SavePlanefitPopup_4",1,"None") // for the save flatten
-	//ShowWhatPopupFunc("Channel4CapturePopup_4",1,"None") // We dont want to display this channel
-	ShowWhatPopupFunc("Channel4ShowWhatPopup_4",1,"None") // We dont want to display this channel
-	
-	// Channel 3:
-	popnum = WhichListItem("UserIn0", DataTypeFunc(3))
-	SetDataTypePopupFunc("Channel3DataTypePopup_3",popNum,"UserIn0") // sets the channel acquired into the graph:
-	SetPlanefitPopupFunc("Channel3RealPlanefitPopup_3",1,"None") // for the live flatten
-	SetPlanefitPopupFunc("Channel3SavePlanefitPopup_3",1,"None") // for the save flatten
-	//ShowWhatPopupFunc("Channel3CapturePopup_3",1,"None") // We dont want to display this channel
-	ShowWhatPopupFunc("Channel3ShowWhatPopup_3",1,"None") // We dont want to display this channel
-	
-End
 
 //No Need for this anymore:
 // See SetupVcantWindow
@@ -1605,4 +1893,29 @@ Function SetUpUserCalc()
 
 	// Setting the name / label for the channel: 
 	UserChannelNameFunc("UserCalcName_0",NaN,"Vcant","GlobalStrings[%UserCalcName][%Value]")
+End
+
+// Ideally, one would assume that Output.A was accurate when getting Vtotal. However, it is way too inaccurate
+// to make precise quantitative measurements. On the other hand the ADCs on UserIn-s are sufficiently
+// accurate. It is therefore recommended to use UserIn0 instead of using 
+Function setUpVcantWindowWRONG()
+	
+	// Channel 5:
+	Variable popnum = WhichListItem("Lateral", DataTypeFunc(5))
+	if(popnum < 0)
+		// Lateral already being displayed
+		// dont bother
+		return -1
+	endif
+	SetDataTypePopupFunc("Channel5DataTypePopup_5",popNum,"Lateral") // sets the channel acquired into the graph:
+	SetPlanefitPopupFunc("Channel5RealPlanefitPopup_5",4,"Masked Line") // for the live flatten
+	SetPlanefitPopupFunc("Channel5SavePlanefitPopup_5",4,"Flatten 0") // for the save flatten
+	ShowWhatPopupFunc("Channel5CapturePopup_5",4,"Both")
+	SetChannelColorMap("Channel51ColorMapPopup_5",29,"VioletOrangeYellow")
+	
+End
+
+Function forceLateral()
+	MeterPopupFunc("LateralPopup",3,"On")
+	MeterPanelSetup("MeterSetupDone")
 End
