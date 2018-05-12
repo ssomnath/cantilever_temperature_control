@@ -1,12 +1,25 @@
 #pragma rtGlobals=1		// Use modern global access method.
+//Version 1.1
+//Largest changes to:
+// 	the wiring checking function
+//	Meter Panel
+
+//Use this to check if thermal code exists.
+//DataFolderExists("root:packages:TemperatureControl" )
 
 Menu "Macros"
 	Submenu "Temperature Control"
+		"Check Circuit Wiring", ThermalWiringChecker()
 		"I-V Characaterization", IVCharDriver()
 		"Thermal Imaging", ThermalImagingDriver()
 		"Thermal Lithography", ThermalLithoDriver()
 		"Meter Panel", TempContMeterDriver()
 	End	
+End
+
+Function ThermalWiringChecker()
+	CrossPointSetup(-1)
+	CheckWiring(0)
 End
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -31,8 +44,14 @@ Function TempContMeterDriver()
 	Variable/G GIcant = 0
 	Variable/G GPcant = 0
 	Variable/G GVtot = 0
-	Variable/G gVcant=0
 	Variable/G GrunMeter = 1
+	
+	// Setting up all the backend wiring:
+	SetupVcantAlias()
+	forceLateral()
+	ThermalPIDSetup()
+	setLinearCombo()
+	td_wv("output.A",0.5)
 		
 	// Starting background process here:
 	//SetBackground bgThermalMeter()
@@ -67,11 +86,11 @@ Window TempContMeterPanel(): Panel
 	
 	ValDisplay vd_Vcant,pos={58,123},size={346,20},title="V cant (V)", mode=0
 	ValDisplay vd_Vcant,limits={0,10,0},barmisc={0,70},highColor= (0,43520,65280)
-	ValDisplay vd_Vcant, fsize=18, value=root:Packages:TemperatureControl:Meter:GVcant
+	ValDisplay vd_Vcant, fsize=18, value=Root:Packages:MFP3D:Meter:Lateral
 	
 	ValDisplay vd_Vtot,pos={74,157},size={331,20},title="V tot (V)", mode=0
 	ValDisplay vd_Vtot,limits={0,10,0},barmisc={0,70},highColor= (0,43520,65280)
-	ValDisplay vd_Vtot, fsize=18, value=root:Packages:TemperatureControl:Meter:GVtot
+	ValDisplay vd_Vtot, fsize=18, value=Root:Packages:MFP3D:Meter:ReadMeterRead[%UserIn0][0]+Root:Packages:MFP3D:Meter:Lateral
 	
 	ValDisplay vd_statusLED, value=str2num(root:packages:MFP3D:Main:PIDSLoop[%Status][5])
 	ValDisplay vd_statusLED, mode=2, limits={-1,1,0}, highColor= (0,65280,0), zeroColor= (65280,65280,16384)
@@ -89,7 +108,12 @@ Function bgThermalMeter()
 	
 	//WAVE tempWave = Root:Packages:MFP3D:Meter:ReadMeterRead
 	//Variable Vsense = tempWave[%UserIn0][0]
-		
+	
+	//SetDataFolder Root:Packages:MFP3D:Meter
+	//NVAR Lateral
+	
+	//Variable Vcant = Lateral
+	
 	Variable Vsense = td_RV("UserIn0")
 
 	Variable Vcant = td_RV("Lateral")
@@ -97,13 +121,12 @@ Function bgThermalMeter()
 	SetDataFolder root:packages:TemperatureControl
 	NVAR gRsense
 	SetDataFolder root:packages:TemperatureControl:Meter
-	NVAR gRcant, gPcant, gIcant, gRunMeter, gVtot, gVcant
+	NVAR gRcant, gPcant, gIcant, gRunMeter, gVtot, gCount
 		
 	gIcant = Vsense / gRsense // in mA
 	gPcant = Vcant * gIcant // in mW
 	gRcant = Vcant / gIcant // in kOhms
 	gVtot = Vsense + Vcant // in V
-	gVcant = Vcant
 	
 	SetDataFolder dfSave	
 		
@@ -131,6 +154,8 @@ Function ThermalImagingDriver()
 	
 	Variable rsense = NumVarOrDefault(":gRsense",0.98)
 	Variable/G gRsense= rsense
+	Variable wireChecked = NumVarOrDefault(":gWireChecked",0)
+	Variable/G gWireChecked = wireChecked
 	
 	NewDataFolder/O/S root:packages:TemperatureControl:Imaging
 	
@@ -138,20 +163,19 @@ Function ThermalImagingDriver()
 	Variable rcant = NumVarOrDefault(":gRcant",3)
 	Variable/G gRcant= rcant
 	String /G gScanModeNames = "Contact;AC mode;Thermal"
-	Variable/G gScanMode = 1 // Contact, 2 for tapping, 3 for Thermal
+	Variable/G gScanMode = 1 // Contact, 2 for tapping
 	
 	ThermalPIDSetup()
 	setLinearCombo()
 	SetupVcantAlias()
 	SetupVcantWindow()
-	TempContMeterDriver()
 	
-	//Check to make sure cables are properly plugged in:
-	DoAlert 1,"Do you want me to check if all electrical connections\nhave correctly been wired?\n(Strongly Recommended)"
-	if(V_flag==1)
-		// Yes clicked
-		CheckWiring()
+	if(wireChecked == 0)
+		//Check to make sure cables are properly plugged in:
+		CheckWiring(1)
 	endif
+	
+	TempContMeterDriver()
 	
 	// Create the control panel.
 	Execute "ThermalImagingPanel()"
@@ -211,7 +235,7 @@ Function ScanModeProc(pa) : PopupMenuControl
 	
 	SetDataFolder dfSave
 	
-End //LineLength
+End //ScanModeProc
 
 Function ThermalImagingButtonFunc(ctrlname) : ButtonControl
 	String ctrlname
@@ -264,7 +288,7 @@ Function setUpVcantWindow()
 	// Channel 5:
 	Variable popnum = WhichListItem("Lateral", DataTypeFunc(5))
 	if(popnum < 0)
-		// Potential already being displayed
+		// Lateral already being displayed
 		// dont bother
 		return -1
 	endif
@@ -293,6 +317,8 @@ Function ThermalLithoDriver()
 	
 	Variable rsense = NumVarOrDefault(":gRsense",0.98)
 	Variable/G gRsense= rsense
+	Variable wireChecked = NumVarOrDefault(":gWireChecked",0)
+	Variable/G gWireChecked = wireChecked
 	
 	NewDataFolder/O/S root:packages:TemperatureControl:Lithography
 	
@@ -307,17 +333,13 @@ Function ThermalLithoDriver()
 	Execute "ThermalLithoPanel()"
 	
 	ThermalPIDSetup()
-	setLinearCombo()
-	SetupVcantAlias()
-	TempContMeterDriver()
 	
 	//Check to make sure cables are properly plugged in:
-	DoAlert 1,"Do you want me to check if all electrical connections\nhave correctly been wired?\n(Strongly Recommended)"
-	if(V_flag==1)
-		// Yes clicked
-		CheckWiring()
+	if(wireChecked==0)
+		CheckWiring(1)
 	endif
 	
+	TempContMeterDriver()	
 	
 	//Reset the datafolder to the root / previous folder
 	SetDataFolder dfSave
@@ -391,9 +413,9 @@ Function ThermalLithoButtonFunc(ctrlname) : ButtonControl
 End
 
 Function startLithoPID()
-		
-	CrossPointSetup(3)
-	setLinearCombo()	
+	
+	CrossPointSetup(3)	
+	//setLinearCombo()	
 	SetHeat(0)
 	PIDPanelButtonFunc("Read",5)	
 		
@@ -438,7 +460,8 @@ Function SetHeat(mode)
 	SetDataFolder dfSave
 	
 End
-	
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////// IV CHARACTERIZATION //////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -458,6 +481,8 @@ Function IVCharDriver()
 	
 	Variable rsense = NumVarOrDefault(":gRsense",0.98)
 	Variable/G gRsense= rsense
+	Variable wireChecked = NumVarOrDefault(":gWireChecked",0)
+	Variable/G gWireChecked = wireChecked
 	
 	NewDataFolder/O/S root:packages:TemperatureControl:IVChar
 	
@@ -487,16 +512,13 @@ Function IVCharDriver()
 	CrossPointSetup(-1)	
 
 	//Check to make sure cables are properly plugged in:
-	DoAlert 1,"Do you want me to check if all electrical connections\nhave correctly been wired?\n(Strongly Recommended)"
-	if(V_flag==1)
-		// Yes clicked
-		CheckWiring()
+	if(wireChecked == 0)
+		CheckWiring(1)
 	endif
 	
 	// Create the control panel.
 	Execute "IVCharPanel()"
 	
-
 End
 
 
@@ -536,38 +558,38 @@ Window IVCharPanel(): Panel
 	
 	Display/W=(21,85,397,292) /HOST=# VcantWave, vs VTotalWave
 	ModifyGraph frameStyle=5
-	Label bottom "\Z14V total (V)"
-	Label left "\Z14V cant (V)"
+	Label bottom "\Z13V total (V)"
+	Label left "\Z13V cant (V)"
 	RenameWindow #,G0
 	SetActiveSubwindow ##
 	
 	Display/W=(410,85,790,292) /HOST=# RcantWave, vs VTotalWave
 	ModifyGraph frameStyle=5
-	Label bottom "\Z14V total (V)"
-	Label left "\Z14R cant (k Ohms)"
+	Label bottom "\Z13V total (V)"
+	Label left "\Z13R cant (k Ohms)"
 	RenameWindow #,G1
 	SetActiveSubwindow ##
 	
 	Display/W=(21,305,397,505) /HOST=# PcantWave, vs VTotalWave
 	ModifyGraph frameStyle=5
-	Label bottom "\Z14V total (V)"
-	Label left "\Z14P cant (mW)"
+	Label bottom "\Z13V total (V)"
+	Label left "\Z13P cant (mW)"
 	RenameWindow #,G2
 	SetActiveSubwindow ##
 	
 	Display/W=(410,305,790,505) /HOST=# IcantWave, vs VTotalWave
 	ModifyGraph frameStyle=5
-	Label bottom "\Z14V total (V)"
-	Label left "\Z14I Cant (mA)"
+	Label bottom "\Z13V total (V)"
+	Label left "\Z13I Cant (mA)"
 	RenameWindow #,G3
 	SetActiveSubwindow ##
 	
 	SetDataFolder dfSave		
 	SetDrawEnv fstyle= 1 
 	SetDrawEnv textrgb= (0,0,65280)
-	DrawText 624,535, "\Z14Suhas Somnath, UIUC 2010"
+	DrawText 624,535, "\Z134Suhas Somnath, UIUC 2010"
 End	
-
+	
 Function IVSetVarProc(sva) : SetVariableControl
 	STRUCT WMSetVariableAction &sva
 
@@ -613,7 +635,7 @@ Function StartIVChar(ctrlname) : ButtonControl
 	String ctrlname
 	
 	ModifyControl but_start, disable=2, title="Running..."
-		
+	
 	// Forcing the crosspoints to stay again:
 	CrossPointSetup(-1)
 	
@@ -654,19 +676,17 @@ Function StartIVChar(ctrlname) : ButtonControl
 		while(ticks-t0<Delay)
 		
 		gProgress = (i/NumSteps)*100
-		//print "iteration #" + num2str(i) + " now complete"
+		print "iteration #" + num2str(i) + " now complete"
 		
 		// Calculate the varialbes now:
 		VtotalWave[i] = Vinitial + i*Vstep
 		VsenseWave[i] = Vssum / count
 		VcantWave[i] =  VTotalWave[i] - VsenseWave[i]
-		IcantWave[i] =VsenseWave[i] / rsense // in mA because rsense in kohms
-		RcantWave[i] = VcantWave[i] / IcantWave[i] // V / mA = k Ohms
+		IcantWave[i] =VsenseWave[i] / rsense // in mA
+		RcantWave[i] = VcantWave[i] / IcantWave[i]
 		PcantWave[i] = VcantWave[i] * IcantWave[i]
 		
 	endfor
-	
-	ModifyControl but_start, disable=0, title="Start"
 	
 	Edit/K=1 VTotalWave,VsenseWave,VCantWave,RCantWave,PCantWave,ICantWave
 	
@@ -698,6 +718,9 @@ Function StopPID()
 	//Safety Cutoff
 	td_WV("Output.A",0.5)
 	PIDPanelButtonFunc("Read",5)
+	// If the user doesn't want to do anything with the thermal panel
+	// this should not affect future actions:
+	ARCheckFunc("DontChangeXPTCheck",0)
 End
 
 Function SetupVcantAlias()
@@ -817,11 +840,19 @@ Function CrossPointSetup(scanmode)
 	td_WV("Output.A",0.5)
 End
 
-Function CheckWiring()
+Function CheckWiring(displayDialog)
+	Variable displayDialog
 	// This will be executed AFTER the PID has been set up
 	// In A must increase if Out A is increased.
 	// Will try two values (eg 2V and 5V) to see if BNC cables have been
 	// correctly set up.
+	if(displayDialog)
+		DoAlert 1,"Do you want me to check if all electrical connections\nhave correctly been wired?\n(Strongly Recommended)"
+		if(V_flag!=1)
+			// No or cancel clicked
+			return -1
+		endif
+	endif
 	
 	td_WV("Output.A",2)
 		
@@ -849,10 +880,19 @@ Function CheckWiring()
 	
 	if(in2 > (in1+0.15) && in1 > 0.1)
 		DoAlert 0,"Connections ok!"
+		
+		// Commit this check to memory:
+		String dfSave = GetDataFolder(1)
+		NewDataFolder/O/S root:packages:TemperatureControl
+		Variable wireChecked = NumVarOrDefault(":gWireChecked",0)
+		Variable/G gWireChecked = 1
+		SetDataFolder dfSave
+		
 	else
 		DoAlert 0,"Cantilever improperly connected!\nPlease make sure to wire:\n1. Input0 to sense voltage\n2. Output0 to total voltage"
 	endif
-
+	
+	
 End
 
 Function WireXpt(whichpopup,channel)
@@ -886,6 +926,11 @@ Function PIDPanelButtonFunc(action, loop)
 	InfoStruct.EventMod = 1
 	InfoStruct.EventCode = 2
 	PIDSLoopButtonFunc(InfoStruct)
+End
+
+Function forceLateral()
+	MeterPopupFunc("LateralPopup",3,"On")
+	MeterPanelSetup("MeterSetupDone")
 End
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
