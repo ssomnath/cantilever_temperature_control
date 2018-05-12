@@ -1,0 +1,123 @@
+Make/T PIDS
+•print td_RG("PIDSLoop.0",PIDS)
+  0
+•edit PIDS.ld
+•print td_WG("PIDSLoop.0",PIDS)
+  0
+•Make/N=1e5 Vsens, Vout
+•print td_xsetinwavepair(0,"13,13","Input.A",Vsens,"Output.A",Vout,"Vsens+=0; Vout+=0",5)
+  0
+•print td_WS("Event.13","once")
+  0
+•display Vsens, Vout
+•ModifyGraph rgb(Vout)=(0,0,0)
+•print td_WV("Output.A",0)
+  0
+•print td_WV("Output.A",3)
+  0
+•print td_WV("Output.A",0)
+  0
+•print td_WV("Output.B",3)
+  0
+•print 3/.6
+  5
+•print td_WV("Output.B",7)
+  0
+•print 7/.7344
+  9.53159
+•print td_WV("Output.B",2)
+  0
+•print 2/.45
+  4.44444
+•print td_WS("Event.13","once")
+  0
+•print 3.222/.6279
+  5.13139
+•print td_WS("Event.13","once"); print td_WV("PIDSLoop.0.PGain",-7)
+  0
+  0
+•SetAxis/A
+•print td_RV("Output.A")/td_RV("Input.A")
+  7.00308
+•print td_WS("Event.13","once"); 
+  0
+•print td_WS("Event.13","once"); 
+  0
+•SetAxis/A
+•print td_WS("Event.13","once");
+  0
+•SetAxis/A
+•print td_stopinwavebank(0); print td_xsetinwavepair(0,"12,12","Input.A",Vsens,"Output.A",Vout,"Vsens+=0; Vout+=0",5)
+  0
+  0
+•print td_WS("Event.12","once");
+  0
+•SetAxis/A
+• print td_WS("Event.12","once"); print td_WV("PIDSLoop.0.Status",1); 
+  0
+  0
+•print td_RV("Output.A")/td_RV("Input.A")
+  7.0013
+• print td_WS("Event.12","once"); print td_WV("PIDSLoop.0.Status",1); 
+  0
+  0
+•print td_RV("Output.A")/td_RV("Input.A")
+  4.9979
+•print td_WS("Event.13","once");
+  0
+• print td_WS("Event.12","once"); print td_WV("PIDSLoop.0.Status",1); 
+  0
+  0
+• print td_WS("Event.12","once"); print td_WV("PIDSLoop.0.Status",1); 
+  0
+  0
+• print td_WS("Event.12","once"); print td_WV("PIDSLoop.0.Status",1); 
+  0
+  0
+•print td_RV("Output.A")/td_RV("Input.A")
+  5.00204
+• print td_WS("Event.12","once"); print td_WV("PIDSLoop.0.Status",1); 
+  0
+  0
+•print td_RV("Output.A")/td_RV("Input.A")
+  6.99652
+• print td_WS("Event.12","once"); print td_WV("PIDSLoop.0.Status",1); 
+  0
+  0
+•print td_RV("Output.A")/td_RV("Input.A")
+  4.00202
+• print td_WS("Event.12","once"); print td_WV("PIDSLoop.0.Status",1); 
+  0
+  0
+•print td_RV("Output.A")/td_RV("Input.A")
+  3.99835
+• print td_WS("Event.12","once"); print td_WV("PIDSLoop.0.Status",1); 
+  0
+  0
+•print td_RV("Output.A")/td_RV("Input.A")
+  4.0002
+• print td_WS("Event.12","once"); print td_WV("PIDSLoop.0.Status",1); 
+  0
+  0
+•print td_RV("Output.A")/td_RV("Input.A")
+  5.99804
+•print td_WS("PIDSLoop.1.InputChannel","Height")
+  1122
+•print td_WV("PIDSLoop.0.Event",12); 
+  3
+•print td_Ws("PIDSLoop.0.Event","12"); 
+  3
+•print td_WS("PIDSLoop.1.Event","12"); 
+  3
+•print td_WS("PIDSLoop.1.Event","Once"); 
+  3
+•print td_WS("PIDSLoop.1.StartEvent","Once"); 
+  5
+•ShowTools/A arrow
+•print td_WV("PIDSLoop.1.Status",0); 
+  0
+•HideTools/A
+•print td_WV("PIDSLoop.1.DynamicSetPoint",1); 
+  1117
+•print td_WS("PIDSLoop.1.DynamicSetPoint","Yes"); 
+  1117
