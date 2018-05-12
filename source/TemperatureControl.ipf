@@ -13,7 +13,14 @@
 ///////////////////////////////////////////////// VERSION LOG  /////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Upcoming changes:
+// Cannot achieve complete accuracy in PID, at least make meter accurate - Completely get rid of Lateral for Meter
 // proportional gain for TF-AFM
+
+// Version 1.7:
+// Cleaned up UI
+// IV calib - made V final editable not num steps
+// IV calib - Now shows table if requested
+// More accurate IV calib by reading Vtot as well (DACs are quite inaccurate & I haven't been able to offet the voltage using the doIVPanel
 
 // Version 1.6:
 // Lithography with ramped temperature
@@ -76,19 +83,7 @@ Function TempContMeterDriver()
 	Variable/G GVtot = 0
 	Variable/G GrunMeter = 1
 		
-	// Setting up all the backend wiring:
-	SetupVcantAlias()
-	forceLateral()
-	ThermalPIDSetup()
-	setLinearCombo()
-	td_wv("output.A",0.5)
-		
-	// Starting background process here:
-	//SetBackground bgThermalMeter()
-	//GrunMeter = 1;CtrlBackground period=5,start
-	//The delay I've given the background function has
-	// a value of 5. or a delay of (5/60 = 1/12 sec) or 12 hz.
-	ARBackground("bgThermalMeter",10,"")
+	ReInitializeThermalMeterPanel("")
 	
 	//Reset the datafolder to the root / previous folder
 	SetDataFolder dfSave
@@ -100,26 +95,29 @@ End
 Function RestartThermalMeterPanel(ctrlname) : ButtonControl
 	String ctrlname
 
-// Setting up all the backend wiring:
-	//SetupVcantAlias()
-	//forceLateral()
-	//ThermalPIDSetup()
-	//setLinearCombo()
-	//td_wv("output.A",0.5)
+	ARBackground("bgThermalMeter",10,"")
+End
+
+Function ReInitializeThermalMeterPanel(ctrlname) : ButtonControl
+	String ctrlname
+
+	// Setting up all the backend wiring:
+	SetupVcantAlias()
+	forceLateral()
+	ThermalPIDSetup()
+	setLinearCombo()
+	td_wv("output.A",0.5)
 		
 	// Starting background process here:
-	//SetBackground bgThermalMeter()
-	//GrunMeter = 1;CtrlBackground period=5,start
-	//The delay I've given the background function has
-	// a value of 5. or a delay of (5/60 = 1/12 sec) or 12 hz.
-	ARBackground("bgThermalMeter",5,"")
+	RestartThermalMeterPanel("")
+	
 End
 
 
 Window TempContMeterPanel(): Panel
 	
 	PauseUpdate; Silent 1		// building window...
-	NewPanel /K=1 /W=(485,145, 975,335) as "Temperature Control Meter"
+	NewPanel /K=1 /W=(485,145, 1000,335) as "Temperature Control Meter"
 	SetDrawLayer UserBack
 	
 	ValDisplay vd_Rcant,pos={16,16},size={385,20},title="R cant (k Ohm)", mode=0
@@ -144,14 +142,16 @@ Window TempContMeterPanel(): Panel
 	
 	ValDisplay vd_statusLED, value=str2num(root:packages:MFP3D:Main:PIDSLoop[%Status][5])
 	ValDisplay vd_statusLED, mode=2, limits={-1,1,0}, highColor= (0,65280,0), zeroColor= (65280,65280,16384)
-	ValDisplay vd_statusLED, lowColor= (65280,0,0), pos={420,68},size={52,52}, barmisc={0,0}
+	ValDisplay vd_statusLED, lowColor= (65280,0,0), pos={433,59},size={52,52}, barmisc={0,0}
 
 	SetDrawEnv fsize=18
-	DrawText 429,33, "PID"
+	DrawText 443,33, "PID"
 	SetDrawEnv fsize=18
-	DrawText 419,60, "Status"
+	DrawText 433,54, "Status"
 	
-	Button but_refresh,pos={416,154},size={59,27},title="Refresh", proc=RestartThermalMeterPanel
+	Button but_refresh,pos={429,154},size={59,27},title="Refresh", proc=RestartThermalMeterPanel
+	Button but_reinit,pos={419,121},size={79,27},title="Reinitialize", proc=ReinitializeThermalMeterPanel
+
 End
 
 Function bgThermalMeter()
@@ -244,33 +244,32 @@ End
 Window ThermalImagingPanel(): Panel
 	
 	PauseUpdate; Silent 1		// building window...
-	NewPanel /K=1 /W=(485,145, 700,355) as "Thermal Imaging Panel"
+	NewPanel /K=1 /W=(485,145, 700,364) as "Thermal Imaging Panel"
 	SetDrawLayer UserBack
 		
 	SetVariable sv_Rsense,pos={16,20},size={180,18},title="Rsense (kOhm)", limits={0,inf,1}
 	SetVariable sv_Rsense,value= root:packages:TemperatureControl:gRsense,live= 1
-	SetVariable sv_RcantSetpoint,pos={16,49},size={180,18},title="Rcant set point (kOhm)", limits={0,inf,1}
+	SetVariable sv_RcantSetpoint,pos={16,50},size={180,18},title="Rcant set point (kOhm)", limits={0,inf,1}
 	SetVariable sv_RcantSetpoint,value= root:packages:TemperatureControl:Imaging:gRcant,live= 1, proc= UpdateRcant
 	
-	Popupmenu pp_scanmode,pos={16,112},size={135,18},title="Scan Mode"
-	Popupmenu pp_scanmode,value= root:packages:TemperatureControl:Imaging:gScanModeNames,live= 1, proc=ScanModeProc
+	Popupmenu pp_scanmode,pos={16,81},size={135,18},title="Scan Mode",live= 1, proc=ScanModeProc
+	Popupmenu pp_scanmode,value= root:packages:TemperatureControl:Imaging:gScanModeNames
 	
-	SetVariable sv_VcantSetpoint,pos={16,146},size={180,18},title="Vsense setpoint (V)", limits={0,inf,.01}
+	SetVariable sv_VcantSetpoint,pos={16,116},size={180,18},title="Vsense setpoint (V)", limits={0,inf,.01}
 	SetVariable sv_VcantSetpoint,value= root:packages:TemperatureControl:Imaging:gVcant,live= 1//,disable=2
-	SetVariable sv_VcantSetpoint,proc=UpdateThermalSetpoint
+	SetVariable sv_VcantSetpoint,proc=UpdateThermalSetpoint, disable=2
 	
-	SetDrawEnv fsize= 14
-	DrawText 16,99, "Heating:"
-	Button but_start,pos={71,81},size={49,20},title="Start", proc=StartImagingPID
-	Button but_stop,pos={150,81},size={49,20},title="Stop", proc=StopImagingPID
+	Button but_start,pos={17,152},size={65,26},title="Start PID", proc=StartImagingPID
+	Button but_stop,pos={131,152},size={65,26},title="Stop PID", proc=StopImagingPID
 		
 	ValDisplay vd_statusLED, value=str2num(root:packages:MFP3D:Main:PIDSLoop[%Status][5])
 	ValDisplay vd_statusLED, mode=2, limits={-1,1,0}, highColor= (0,65280,0), zeroColor= (65280,65280,16384)
-	ValDisplay vd_statusLED, lowColor= (65280,0,0), pos={127,84},size={15,15}, bodyWidth=15, barmisc={0,0}
+	ValDisplay vd_statusLED, lowColor= (65280,0,0), pos={94,157},size={20,20}, bodyWidth=20, barmisc={0,0}
 		
 	SetDrawEnv fstyle= 1 
+	SetDrawEnv fsize= 14
 	SetDrawEnv textrgb= (0,0,65280)
-	DrawText 49,192, "Suhas Somnath, UIUC 2010"
+	DrawText 14,210, "Suhas Somnath, UIUC 2010"
 End	
 
 Function ScanModeProc(pa) : PopupMenuControl
@@ -291,16 +290,17 @@ Function ScanModeProc(pa) : PopupMenuControl
 				MainPopupFunc("ImagingModePopup_0",1,"Contact")
 				CrossPointSetup(1)
 			endif
-			//if (gScanMode == 3)
+			if (gScanMode == 3)
 				ThermalzPIDSetup()
+				td_WV("PIDSLoop.2.Status",1)
 				// if and when engaging:
 				// Check if heated. Only if heated -> engage
 				// Otherwise setpoint will not be met. full 150V will be applied -> breaking the cantilever
 				//Thermal feedback - enable Vcant setpoint
-				//ModifyControl sv_VcantSetpoint, disable=0
-			//else
-				//ModifyControl sv_VcantSetpoint, disable=2
-			//endif
+				ModifyControl sv_VcantSetpoint, disable=0
+			else
+				ModifyControl sv_VcantSetpoint, disable=2
+			endif
 			setUpVcantWindow()
 			break
 	endswitch
@@ -328,8 +328,8 @@ function ThermalzPIDSetup()
 	parms[3] = num2str(gVcant)// Setpoint
 	parms[4] = "0" // Setpoint offset
 	parms[5] = "0" // DGain
-	parms[6] = "0" // P gain (~3 kOhm)
-	parms[7] = "1000" // I Gain
+	parms[6] = "50" // P gain
+	parms[7] = "0" // I Gain
 	parms[8] = "0" // S Gain
 	parms[9] = "-10" // Input Min
 	parms[10] = "150" // Output Max
@@ -402,17 +402,14 @@ Function UpdateRcant(sva) : SetVariableControl
 			SetDataFolder root:Packages:TemperatureControl:Imaging
 			NVAR gRcant
 			gRcant = dval;
-			
-			
-			
+					
 			// Completely update PID ONLY if already running
 			if(td_RV("PIDSLoop.5.Status")==1)
 				//print "PID running. Therefore I am updating"
 				SetPID(-1*(1+(gRcant/gRsense)))
 				td_WV("PIDSLoop.5.Status",1);
 			endif
-			
-			
+					
 			SetDataFolder dfSave
 			break
 	endswitch
@@ -837,14 +834,14 @@ Window IVCharPanel(): Panel
 	SetVariable sv_Vinitial,pos={200,20},size={112,18},title="V initial (V)", limits={0,10,1}, proc=IVSetVarProc
 	SetVariable sv_Vinitial,value= root:packages:TemperatureControl:IVChar:gVinitial,live= 1
 	
-	SetVariable sv_Vstep,pos={336,20},size={105,18},title="V step (V)", limits={0,10,1}, proc=IVSetVarProc
+	SetVariable sv_Vstep,pos={336,57},size={105,18},title="V step (V)", limits={0,10,1}, proc=IVSetVarProc
 	SetVariable sv_Vstep,value= root:packages:TemperatureControl:IVChar:gVstep,live= 1
 	
-	SetVariable sv_steps,pos={52,57},size={115,18},title="Num steps", limits={1,inf,1}, proc=IVSetVarProc
-	SetVariable sv_steps,value= root:packages:TemperatureControl:IVChar:gNumSteps,live= 1
+	ValDisplay sv_steps,pos={52,57},size={115,18},title="Num steps"
+	ValDisplay sv_steps,value= root:packages:TemperatureControl:IVChar:gNumSteps,live= 1
 	
-	ValDisplay vd_VFinal,pos={353,57},size={84,20},title="V Final"
-	ValDisplay vd_VFinal,value= root:packages:TemperatureControl:IVChar:gVFinal,live= 1
+	SetVariable vd_VFinal,pos={332,20},size={109,20},title="V Final (V)", proc=IVSetVarProc, limits={0,10,1}
+	SetVariable vd_VFinal,value= root:packages:TemperatureControl:IVChar:gVFinal,live= 1
 	
 	SetVariable sv_tDelay,pos={192,57},size={120,18},title="Delay (sec)", limits={0,inf,1}
 	SetVariable sv_tDelay,value= root:packages:TemperatureControl:IVChar:gDelay,live= 1
@@ -857,34 +854,34 @@ Window IVCharPanel(): Panel
 	ValDisplay vd_Progress, fsize=14, value=root:Packages:TemperatureControl:IVChar:GProgress
 	
 	Checkbox chk_ShowData, pos = {646, 51}, size={10,10}, title="Show Data", proc=ShowDataChkFun
-	Checkbox chk_ShowData, live=1
+	Checkbox chk_ShowData, live=1, value=root:Packages:TemperatureControl:IVChar:gshowTable
 	
 	String dfSave= GetDataFolder(1)
 	SetDataFolder root:packages:TemperatureControl:IVChar
 	
 	Display/W=(21,85,397,292) /HOST=# VcantWave, vs VTotalWave
-	ModifyGraph frameStyle=5
+	ModifyGraph frameStyle=5, mode=4, msize=3,marker=19, lStyle=7; // marker: kind of point, mode:=3display only points, 0 = lines between points
 	Label bottom "\Z13V total (V)"
 	Label left "\Z13V cant (V)"
 	RenameWindow #,G0
 	SetActiveSubwindow ##
 	
 	Display/W=(410,85,790,292) /HOST=# RcantWave, vs VTotalWave
-	ModifyGraph frameStyle=5
+	ModifyGraph frameStyle=5, mode=4, msize=3,marker=19, lStyle=7;
 	Label bottom "\Z13V total (V)"
 	Label left "\Z13R cant (k Ohms)"
 	RenameWindow #,G1
 	SetActiveSubwindow ##
 	
 	Display/W=(21,305,397,505) /HOST=# PcantWave, vs VTotalWave
-	ModifyGraph frameStyle=5
+	ModifyGraph frameStyle=5, mode=4, msize=3,marker=19, lStyle=7;
 	Label bottom "\Z13V total (V)"
 	Label left "\Z13P cant (mW)"
 	RenameWindow #,G2
 	SetActiveSubwindow ##
 	
 	Display/W=(410,305,790,505) /HOST=# IcantWave, vs VTotalWave
-	ModifyGraph frameStyle=5
+	ModifyGraph frameStyle=5, mode=4, msize=3,marker=19, lStyle=7;
 	Label bottom "\Z13V total (V)"
 	Label left "\Z13I Cant (mA)"
 	RenameWindow #,G3
@@ -927,10 +924,7 @@ Function IVSetVarProc(sva) : SetVariableControl
 			
 			NVAR gVinitial, gVstep, gNumSteps, gVFinal
 			
-			if(gVinitial + gVstep * gNumSteps > 10)
-				gNumSteps = floor((10-gVinitial)/gVstep)
-			endif
-			
+			gNumSteps = floor((gVFinal - gVInitial)/gVstep);		
 			gVFinal = gVinitial + gVStep * gNumSteps
 			SetDataFolder dfSave
 			break
@@ -963,6 +957,9 @@ Function StartIVChar2(ctrlname) : ButtonControl
 	
 	// Forcing the crosspoints to stay again:
 	CrossPointSetup(-1)
+	// Currently, ONLY for IV calibration - we read V total using an additional channel
+	// for increased accuracy. MFP DACs are quite inaccurate
+	WireXpt("InBPopup","BNCIn1");
 	
 	String dfSave = GetDataFolder(1)
 	
@@ -970,7 +967,8 @@ Function StartIVChar2(ctrlname) : ButtonControl
 	
 	Variable/G gIteration = 0
 	Variable/G gIterStartTick = 0
-	Variable/G gVoltTotal = 0
+	Variable/G gVsenseTotal = 0
+	Variable/G gVtotTotal = 0
 	Variable/G gNumMeasurements = 0
 	
 	NVAR gNumsteps
@@ -1014,13 +1012,14 @@ Function bgIVFun()
 	
 	if(gIterStartTick > 0)
 	
-		NVAR gIteration, gVoltTotal, gNumMeasurements, gDelay
+		NVAR gIteration, gVsenseTotal, gNumMeasurements, gDelay, gVtotTotal
 		//print "Time till next iteration: " + num2str(gIterStartTick+(gDelay* 60) - ticks)
 		if(ticks < (gIterStartTick+(gDelay* 60)))
 		
 			// Case 2: Same iteration 
 			// take another measurement
-			gVoltTotal += td_RV("Input.A")
+			gVsenseTotal += td_RV("Input.A")
+			gVtotTotal += td_RV("Input.B")
 			gNumMeasurements += 1
 			SetDataFolder dfSave
 			//print("Grabbing more data")
@@ -1039,8 +1038,9 @@ Function bgIVFun()
 			
 			//print "Took " + num2str(gNumMeasurements) + " measurements"
 		
-			VtotalWave[gIteration] = gVinitial + gIteration*gVstep
-			VsenseWave[gIteration] = gVoltTotal / gNumMeasurements
+			//VtotalWave[gIteration] = gVinitial + gIteration*gVstep
+			VtotalWave[gIteration] = gVtotTotal / gNumMeasurements
+			VsenseWave[gIteration] = gVsenseTotal / gNumMeasurements
 			VcantWave[gIteration] =  VTotalWave[gIteration] - VsenseWave[gIteration]
 			IcantWave[gIteration] =VsenseWave[gIteration] / gRsense // in mA
 			RcantWave[gIteration] = VcantWave[gIteration] / IcantWave[gIteration]
@@ -1048,9 +1048,10 @@ Function bgIVFun()
 			
 			// b. advance iteration & progress		
 			gNumMeasurements = 0;
-			gVoltTotal = 0;
+			gVsenseTotal = 0;
+			gVtotTotal = 0;
 			gIteration = gIteration+1
-			gProgress = (gIteration/gNumSteps)*100
+			gProgress = min(100,floor((gIteration/gNumSteps)*100))
 			//print "iteration #" + num2str(gIteration) + " now complete"
 			
 			// c. Start next iteration OR stop
@@ -1068,11 +1069,12 @@ Function bgIVFun()
 			
 				// stop IV calibration
 				//gIterStartTick = 0
+				NVAR gShowTable
 				SetDataFolder dfSave
 				td_WV("Output.A",0.5)
 				//print("IV calibration complete")
-				NVAR gShowTable
 				if(gShowTable)
+					//print "Displaying Table"
 					Edit/K=1 VTotalWave,VsenseWave,VCantWave,RCantWave,PCantWave,ICantWave
 				endif
 				ModifyControl but_start, disable=0, title="Start"
@@ -1252,7 +1254,7 @@ Function CheckWiring(displayDialog)
 	// correctly set up.
 	if(displayDialog)
 		DoAlert 1,"Do you want me to check if all electrical connections\nhave correctly been wired?\n(Strongly Recommended)"
-		DoAlert 0,"1. Connect Vtotal to controller front panel \n2. Connect Vsense to the Voltage Connector box not the front panel of the controller. \n3. Use expansion cable to connect controller to Voltage Follwer circuit box"
+		//DoAlert 0,"1. Connect Vtotal to controller front panel \n2. Connect Vsense to the Voltage Connector box not the front panel of the controller. \n3. Use expansion cable to connect controller to Voltage Follwer circuit box"
 		if(V_flag!=1)
 			// No or cancel clicked
 			return -1
@@ -1294,7 +1296,7 @@ Function CheckWiring(displayDialog)
 		SetDataFolder dfSave
 		
 	else
-		DoAlert 0,"Cantilever improperly connected!\nPlease make sure to wire:\n1. Input0 to sense voltage\n2. Output0 to total voltage"
+		DoAlert 0,"Cantilever improperly connected!\nConnect Vtotal to controller front panel \n2. Connect Vsense to the Voltage Connector box not the front panel of the controller. \n3. Use expansion cable to connect controller to Voltage Follwer circuit box"
 	endif
 	
 	
