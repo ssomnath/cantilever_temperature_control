@@ -1,7 +1,4 @@
 #pragma rtGlobals=1		// Use modern global access method.
-//Version 1.3
-//Largest changes:
-// Added a refresh button to meter panel
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////// VERY IMPORTANT - READ THIS FIRST  //////////////////////////////////////////
@@ -12,6 +9,19 @@
 
 // Connect the Expansion port (D-Sub 25 pin) to the Voltage follower box and then
 // connect Vsense to the in0 labled on the box NOT on the BNCin0 on the ARC1/ARC2
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////// VERSION LOG  /////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Upcoming changes:
+// ramp + pulse
+// realtime setpoint updating
+
+// Version 1.4:
+// IV calibration now running as a backgroung process (takes 1/10 as many data points though)
+
+//Version 1.3
+//Largest changes:
+// Added a refresh button to meter panel
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -481,9 +491,9 @@ Window ThermalLithoPanel(): Panel
 		
 	SetVariable sv_Rsense,pos={16,20},size={180,18},title="R Sense (kOhm)", limits={0,inf,1}
 	SetVariable sv_Rsense,value= root:packages:TemperatureControl:gRsense,live= 1
-	SetVariable sv_RLitho,pos={16,49},size={180,18},title="R Litho (kOhm)", limits={0,inf,1}
+	SetVariable sv_RLitho,pos={16,49},size={180,18},title="R Litho (kOhm)", limits={0,inf,1}, proc=UpdateLithoSetpt
 	SetVariable sv_RLitho,value= root:packages:TemperatureControl:Lithography:gRLitho,live= 1
-	SetVariable sv_RNorm,pos={16,80},size={180,18},title="R Normal (kOhm)", limits={0,inf,1}
+	SetVariable sv_RNorm,pos={16,80},size={180,18},title="R Normal (kOhm)", limits={0,inf,1}, proc=UpdateNormSetpt
 	SetVariable sv_RNorm,value= root:packages:TemperatureControl:Lithography:gRNorm,live= 1
 	
 	Button but_start,pos={16,110},size={67,20},title="Start PID", proc=ThermalLithoButtonFunc
@@ -497,6 +507,24 @@ Window ThermalLithoPanel(): Panel
 	SetDrawEnv textrgb= (0,0,65280)
 	DrawText 49,162, "Suhas Somnath, UIUC 2010"
 	
+End
+
+Function UpdateLithoSetpt(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+
+	switch( sva.eventCode )
+		case 1: // mouse up
+		case 2: // Enter key
+		case 3: // Live update
+			String dfSave = GetDataFolder(1)
+			SetDataFolder root:packages:TemperatureControl:Lithography
+			NVAR gRLitho
+			gRLitho = sva.dval
+			SetDataFolder dfSave;
+			break
+	endswitch
+
+	return 0
 End
 
 Function ThermalLithoButtonFunc(ctrlname) : ButtonControl
@@ -624,8 +652,10 @@ Function IVCharDriver()
 	Variable/G gnumsteps= numsteps
 	Variable delay = NumVarOrDefault(":gdelay",1)
 	Variable/G gDelay= delay
-	Variable/G gAbort = 0
+	Variable showTable = NumVarOrDefault(":gshowTable",1)
+	Variable/G gshowTable= showTable
 	Variable/G gProgress = 0
+	Variable/G gAbortIV = 1
 	
 	Make/O/N=(2) Vtotalwave
 	Make/O/N=(2) Vsensewave
@@ -655,30 +685,33 @@ Window IVCharPanel(): Panel
 	NewPanel /K=1 /W=(485,145, 1300,700) as "Heated Cantilever I-V Characterization Panel"
 	SetDrawLayer UserBack
 		
-	SetVariable sv_Rsense,pos={16,20},size={132,18},title="Rsense (kOhm)", limits={0,inf,1}
+	SetVariable sv_Rsense,pos={16,20},size={152,18},title="Rsense (kOhm)", limits={0,inf,1}
 	SetVariable sv_Rsense,value= root:packages:TemperatureControl:gRsense,live= 1
 	
-	SetVariable sv_Vinitial,pos={188,20},size={112,18},title="V initial (V)", limits={0,10,1}, proc=IVSetVarProc
+	SetVariable sv_Vinitial,pos={200,20},size={112,18},title="V initial (V)", limits={0,10,1}, proc=IVSetVarProc
 	SetVariable sv_Vinitial,value= root:packages:TemperatureControl:IVChar:gVinitial,live= 1
 	
 	SetVariable sv_Vstep,pos={336,20},size={105,18},title="V step (V)", limits={0,10,1}, proc=IVSetVarProc
 	SetVariable sv_Vstep,value= root:packages:TemperatureControl:IVChar:gVstep,live= 1
 	
-	SetVariable sv_steps,pos={42,57},size={105,18},title="Num steps", limits={1,inf,1}, proc=IVSetVarProc
+	SetVariable sv_steps,pos={52,57},size={115,18},title="Num steps", limits={1,inf,1}, proc=IVSetVarProc
 	SetVariable sv_steps,value= root:packages:TemperatureControl:IVChar:gNumSteps,live= 1
 	
 	ValDisplay vd_VFinal,pos={353,57},size={84,20},title="V Final"
 	ValDisplay vd_VFinal,value= root:packages:TemperatureControl:IVChar:gVFinal,live= 1
 	
-	SetVariable sv_tDelay,pos={185,57},size={120,18},title="Delay (sec)", limits={0,inf,1}
+	SetVariable sv_tDelay,pos={192,57},size={120,18},title="Delay (sec)", limits={0,inf,1}
 	SetVariable sv_tDelay,value= root:packages:TemperatureControl:IVChar:gDelay,live= 1
 	
-	Button but_start,pos={468,18},size={80,25},title="Start", proc=StartIVChar
+	Button but_start,pos={468,18},size={80,25},title="Start", proc=StartIVChar2
 	Button but_stop,pos={468,50},size={80,25},title="Stop", proc=StopIVChar
 	
-	ValDisplay vd_Progress,pos={566,30},size={214,20},title="Progress", mode=0, live=1
+	ValDisplay vd_Progress,pos={576,23},size={214,20},title="Progress", mode=0, live=1
 	ValDisplay vd_Progress,limits={0,100,0},barmisc={0,40},highColor= (0,43520,65280)
-	ValDisplay vd_Progress, fsize=18, value=root:Packages:TemperatureControl:IVChar:GProgress
+	ValDisplay vd_Progress, fsize=14, value=root:Packages:TemperatureControl:IVChar:GProgress
+	
+	Checkbox chk_ShowData, pos = {646, 51}, size={10,10}, title="Show Data", proc=ShowDataChkFun
+	Checkbox chk_ShowData, live=1
 	
 	String dfSave= GetDataFolder(1)
 	SetDataFolder root:packages:TemperatureControl:IVChar
@@ -716,6 +749,22 @@ Window IVCharPanel(): Panel
 	SetDrawEnv textrgb= (0,0,65280)
 	DrawText 624,535, "\Z13Suhas Somnath, UIUC 2010"
 End	
+
+Function ShowDataChkFun(cba) : CheckBoxControl
+	STRUCT WMCheckboxAction &cba
+
+	switch( cba.eventCode )
+		case 2: // mouse up
+			String dfSave = GetDataFolder(1)
+			SetDataFolder root:Packages:TemperatureControl:IVChar
+			NVAR gShowTable
+			gShowTable = cba.checked
+			SetDataFolder dfSave
+			break
+	endswitch
+
+	return 0
+End
 	
 Function IVSetVarProc(sva) : SetVariableControl
 	STRUCT WMSetVariableAction &sva
@@ -734,8 +783,8 @@ Function IVSetVarProc(sva) : SetVariableControl
 			
 			if(gVinitial + gVstep * gNumSteps > 10)
 				gNumSteps = floor((10-gVinitial)/gVstep)
-				
 			endif
+			
 			gVFinal = gVinitial + gVStep * gNumSteps
 			SetDataFolder dfSave
 			break
@@ -750,17 +799,18 @@ Function StopIVChar(ctrlname) : ButtonControl
 	String dfSave = GetDataFolder(1)
 		
 	SetDataFolder root:Packages:TemperatureControl:IVChar
-	NVAR gAbort
+	NVAR gAbortIV
 	
-	gAbort = 1
-	
+	// stop background function here.
+	gAbortIV = 1
+
 	ModifyControl but_start, disable=0, title="Start"
 	
 	SetDataFolder dfSave
 	
 End
 
-Function StartIVChar(ctrlname) : ButtonControl
+Function StartIVChar2(ctrlname) : ButtonControl
 	String ctrlname
 	
 	ModifyControl but_start, disable=2, title="Running..."
@@ -770,62 +820,125 @@ Function StartIVChar(ctrlname) : ButtonControl
 	
 	String dfSave = GetDataFolder(1)
 	
-	SetDataFolder root:Packages:TemperatureControl
-	NVAR gRsense
-	
 	SetDataFolder root:Packages:TemperatureControl:IVChar
-	NVAR gVinitial, gVstep, gNumSteps, gDelay, gAbort, gProgress
 	
-	Variable vinitial = gVinitial
-	Variable Vstep = gVstep
-	Variable numsteps = gNumsteps
-	Variable delay =gDelay	* 60 // per sec
-	Variable rsense = gRsense
-	gAbort = 0
+	Variable/G gIteration = 0
+	Variable/G gIterStartTick = 0
+	Variable/G gVoltTotal = 0
+	Variable/G gNumMeasurements = 0
+	
+	NVAR gNumsteps
 	
 	Wave Vtotalwave, VsenseWave, VcantWave, RcantWave, PcantWave, IcantWave
-	Redimension/N=(NumSteps+1) Vtotalwave, VsenseWave, VcantWave, RcantWave, PcantWave, IcantWave
+	Redimension/N=0 Vtotalwave, VsenseWave, VcantWave, RcantWave, PcantWave, IcantWave
+	Redimension/N=(gNumSteps+1) Vtotalwave, VsenseWave, VcantWave, RcantWave, PcantWave, IcantWave
 	
-	gProgress = 0
-	
-	Variable i=0;
-	for(i=0; i<= NumSteps; i+=1)
-	
-		if(gAbort)
-			gAbort = 0
-			break
-		endif
-	
-		td_WV("Output.A",Vinitial + i*Vstep)
-		Variable Vssum = 0
-		Variable count = 0
-		Variable t0 = ticks
-		do
-			Vssum += td_RV("Input.A")
-			count += 1
-		while(ticks-t0<Delay)
-		
-		gProgress = (i/NumSteps)*100
-		print "iteration #" + num2str(i) + " now complete"
-		
-		// Calculate the varialbes now:
-		VtotalWave[i] = Vinitial + i*Vstep
-		VsenseWave[i] = Vssum / count
-		VcantWave[i] =  VTotalWave[i] - VsenseWave[i]
-		IcantWave[i] =VsenseWave[i] / rsense // in mA
-		RcantWave[i] = VcantWave[i] / IcantWave[i]
-		PcantWave[i] = VcantWave[i] * IcantWave[i]
-		
-	endfor
-	
-	Edit/K=1 VTotalWave,VsenseWave,VCantWave,RCantWave,PCantWave,ICantWave
+	// Starting background process here:
+	ARBackground("bgIVFun",100,"")
 	
 	SetDataFolder dfSave
+
+End
+
+Function bgIVFun()
+
+	String dfSave = GetDataFolder(1)
 	
-	ModifyControl but_start, disable=0, title="Start"
+	SetDataFolder root:Packages:TemperatureControl:IVChar
+	NVAR gAbortIV
 	
-	td_WV("Output.A",0.5)
+	if(gAbortIV == 1)
+		td_WV("Output.A",0.5)
+		SetDataFolder dfSave
+		ModifyControl but_start, disable=0, title="Start"
+		gAbortIV = 0;
+		return 1;
+	endif
 	
+	// Case 1: Very first run of IV
+	NVAR gIterStartTick
+	if(gIterStartTick == 0)
+		NVAR gVinitial, gVstep
+		td_WV("Output.A",gVinitial + 0*gVstep)
+		gIterStartTick = ticks
+		SetDataFolder dfSave
+		//print("very first IV")
+		return 0;
+	endif
+	
+	if(gIterStartTick > 0)
+	
+		NVAR gIteration, gVoltTotal, gNumMeasurements, gDelay
+		//print "Time till next iteration: " + num2str(gIterStartTick+(gDelay* 60) - ticks)
+		if(ticks < (gIterStartTick+(gDelay* 60)))
+		
+			// Case 2: Same iteration 
+			// take another measurement
+			gVoltTotal += td_RV("Input.A")
+			gNumMeasurements += 1
+			SetDataFolder dfSave
+			//print("Grabbing more data")
+			return 0;
+		else
+			
+			NVAR gProgress, gNumSteps, gVinitial, gVstep
+			Wave Vtotalwave, VsenseWave, VcantWave, RcantWave, PcantWave, IcantWave
+		
+			// Case 3: Completed iteration 
+			
+			// a. calculate & store necessary vals for previous iter	
+			SetDataFolder root:Packages:TemperatureControl
+			NVAR gRsense
+			SetDataFolder root:Packages:TemperatureControl:IVChar
+			
+			//print "Took " + num2str(gNumMeasurements) + " measurements"
+		
+			VtotalWave[gIteration] = gVinitial + gIteration*gVstep
+			VsenseWave[gIteration] = gVoltTotal / gNumMeasurements
+			VcantWave[gIteration] =  VTotalWave[gIteration] - VsenseWave[gIteration]
+			IcantWave[gIteration] =VsenseWave[gIteration] / gRsense // in mA
+			RcantWave[gIteration] = VcantWave[gIteration] / IcantWave[gIteration]
+			PcantWave[gIteration] = VcantWave[gIteration] * IcantWave[gIteration]
+			
+			// b. advance iteration & progress		
+			gNumMeasurements = 0;
+			gVoltTotal = 0;
+			gIteration = gIteration+1
+			gProgress = (gIteration/gNumSteps)*100
+			//print "iteration #" + num2str(gIteration) + " now complete"
+			
+			// c. Start next iteration OR stop
+			
+			if(gIteration <= gNumsteps)
+			
+				// start next iteration
+				td_WV("Output.A",gVinitial + gIteration*gVstep)
+				gIterStartTick = ticks
+				SetDataFolder dfSave
+				//print("moving to next iteration")
+				return 0;
+				
+			else
+			
+				// stop IV calibration
+				//gIterStartTick = 0
+				SetDataFolder dfSave
+				td_WV("Output.A",0.5)
+				//print("IV calibration complete")
+				NVAR gShowTable
+				if(gShowTable)
+					Edit/K=1 VTotalWave,VsenseWave,VCantWave,RCantWave,PCantWave,ICantWave
+				endif
+				ModifyControl but_start, disable=0, title="Start"
+				return 1;
+				
+			endif
+		endif
+	endif
+	
+	print "IV calib should not be coming here. Aborting"
+	return 1; // DONT keep background function alive
+
 End
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -980,6 +1093,7 @@ Function CheckWiring(displayDialog)
 	// correctly set up.
 	if(displayDialog)
 		DoAlert 1,"Do you want me to check if all electrical connections\nhave correctly been wired?\n(Strongly Recommended)"
+		DoAlert 0,"1. Connect Vtotal to controller front panel \n2. Connect Vsense to the Voltage Connector box not the front panel of the controller. \n3. Use expansion cable to connect controller to Voltage Follwer circuit box"
 		if(V_flag!=1)
 			// No or cancel clicked
 			return -1
@@ -1068,6 +1182,71 @@ End
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////// DISCARDED FUNCTIONS ///////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// This method still works but it causes Igor to freeze while measurements take place
+// IV calibration cannot be stopped. Nothing else may be performed
+// This does average ~ 160 samples per represented data point -> lower noise.
+Function StartIVChar(ctrlname) : ButtonControl
+	String ctrlname
+	
+	ModifyControl but_start, disable=2, title="Running..."
+	
+	// Forcing the crosspoints to stay again:
+	CrossPointSetup(-1)
+	
+	String dfSave = GetDataFolder(1)
+	
+	SetDataFolder root:Packages:TemperatureControl
+	NVAR gRsense
+	
+	SetDataFolder root:Packages:TemperatureControl:IVChar
+	NVAR gVinitial, gVstep, gNumSteps, gDelay, gProgress
+	
+	Variable vinitial = gVinitial
+	Variable Vstep = gVstep
+	Variable numsteps = gNumsteps
+	Variable delay =gDelay	* 60 // per sec
+	Variable rsense = gRsense
+	
+	Wave Vtotalwave, VsenseWave, VcantWave, RcantWave, PcantWave, IcantWave
+	Redimension/N=(NumSteps+1) Vtotalwave, VsenseWave, VcantWave, RcantWave, PcantWave, IcantWave
+	
+	gProgress = 0
+	
+	Variable i=0;
+	for(i=0; i<= NumSteps; i+=1)
+	
+		td_WV("Output.A",Vinitial + i*Vstep)
+		Variable Vssum = 0
+		Variable count = 0
+		Variable t0 = ticks
+		do
+			Vssum += td_RV("Input.A")
+			count += 1
+		while(ticks-t0<Delay)
+		
+		gProgress = (i/NumSteps)*100
+		print "iteration #" + num2str(count) + " now complete"
+		
+		// Calculate the varialbes now:
+		VtotalWave[i] = Vinitial + i*Vstep
+		VsenseWave[i] = Vssum / count
+		VcantWave[i] =  VTotalWave[i] - VsenseWave[i]
+		IcantWave[i] =VsenseWave[i] / rsense // in mA
+		RcantWave[i] = VcantWave[i] / IcantWave[i]
+		PcantWave[i] = VcantWave[i] * IcantWave[i]
+		
+	endfor
+	
+	Edit/K=1 VTotalWave,VsenseWave,VCantWave,RCantWave,PCantWave,ICantWave
+	
+	SetDataFolder dfSave
+	
+	ModifyControl but_start, disable=0, title="Start"
+	
+	td_WV("Output.A",0.5)
+	
+End
 
 Function RefreshGraphs()
 	
