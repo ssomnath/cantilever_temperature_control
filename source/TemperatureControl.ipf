@@ -1,7 +1,19 @@
 #pragma rtGlobals=1		// Use modern global access method.
-//Version 1.1
-//Largest changes to:
-// 	Addition of thermal feedback scanning mode
+//Version 1.3
+//Largest changes:
+// Added a refresh button to meter panel
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////// VERY IMPORTANT - READ THIS FIRST  //////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Please make sure to use the voltage follower box specially constructed to work 
+// around the impedence matching problem of ARC1 and ARC2 controllers for this
+// code to work accurately.
+
+// Connect the Expansion port (D-Sub 25 pin) to the Voltage follower box and then
+// connect Vsense to the in0 labled on the box NOT on the BNCin0 on the ARC1/ARC2
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Notes to self:
 // ARGetImagingMode - in Temp1.ipf
@@ -68,6 +80,24 @@ Function TempContMeterDriver()
 	Execute "TempContMeterPanel()"
 End
 
+Function RestartThermalMeterPanel(ctrlname) : ButtonControl
+	String ctrlname
+
+// Setting up all the backend wiring:
+	SetupVcantAlias()
+	forceLateral()
+	ThermalPIDSetup()
+	setLinearCombo()
+	td_wv("output.A",0.5)
+		
+	// Starting background process here:
+	//SetBackground bgThermalMeter()
+	//GrunMeter = 1;CtrlBackground period=5,start
+	//The delay I've given the background function has
+	// a value of 5. or a delay of (5/60 = 1/12 sec) or 12 hz.
+	ARBackground("bgThermalMeter",5,"")
+End
+
 
 Window TempContMeterPanel(): Panel
 	
@@ -97,12 +127,14 @@ Window TempContMeterPanel(): Panel
 	
 	ValDisplay vd_statusLED, value=str2num(root:packages:MFP3D:Main:PIDSLoop[%Status][5])
 	ValDisplay vd_statusLED, mode=2, limits={-1,1,0}, highColor= (0,65280,0), zeroColor= (65280,65280,16384)
-	ValDisplay vd_statusLED, lowColor= (65280,0,0), pos={420,66},size={54,83}, barmisc={0,0}
+	ValDisplay vd_statusLED, lowColor= (65280,0,0), pos={420,68},size={52,52}, barmisc={0,0}
 
 	SetDrawEnv fsize=18
-	DrawText 429,37, "PID"
+	DrawText 429,33, "PID"
 	SetDrawEnv fsize=18
-	DrawText 419,63, "Status"
+	DrawText 419,60, "Status"
+	
+	Button but_refresh,pos={416,154},size={59,27},title="Refresh", proc=RestartThermalMeterPanel
 End
 
 Function bgThermalMeter()
@@ -682,7 +714,7 @@ Window IVCharPanel(): Panel
 	SetDataFolder dfSave		
 	SetDrawEnv fstyle= 1 
 	SetDrawEnv textrgb= (0,0,65280)
-	DrawText 624,535, "\Z134Suhas Somnath, UIUC 2010"
+	DrawText 624,535, "\Z13Suhas Somnath, UIUC 2010"
 End	
 	
 Function IVSetVarProc(sva) : SetVariableControl
