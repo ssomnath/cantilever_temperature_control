@@ -1,9 +1,10 @@
 #pragma rtGlobals=1		// Use modern global access method.
 //Version 1.1
 //Largest changes to:
-// 	the wiring checking function
-//	Meter Panel
+// 	Addition of thermal feedback scanning mode
 
+// Notes to self:
+// ARGetImagingMode - in Temp1.ipf
 //Use this to check if thermal code exists.
 //DataFolderExists("root:packages:TemperatureControl" )
 
@@ -56,6 +57,8 @@ Function TempContMeterDriver()
 	// Starting background process here:
 	//SetBackground bgThermalMeter()
 	//GrunMeter = 1;CtrlBackground period=5,start
+	//The delay I've given the background function has
+	// a value of 5. or a delay of (5/60 = 1/12 sec) or 12 hz.
 	ARBackground("bgThermalMeter",5,"")
 	
 	//Reset the datafolder to the root / previous folder
@@ -162,8 +165,12 @@ Function ThermalImagingDriver()
 	//Variables declaration
 	Variable rcant = NumVarOrDefault(":gRcant",3)
 	Variable/G gRcant= rcant
+	//This will form the setpoint for z - height
+	Variable vcant = NumVarOrDefault(":gVcant",3)
+	Variable/G gVcant= vcant
 	String /G gScanModeNames = "Contact;AC mode;Thermal"
-	Variable/G gScanMode = 1 // Contact, 2 for tapping
+	Variable/G gScanMode = 1 // Contact, 2 for tapping, 3 for thermal
+	String /G gZfeedbackChannel = "Input.A" //"Lateral"
 	
 	ThermalPIDSetup()
 	setLinearCombo()
@@ -188,27 +195,33 @@ End
 Window ThermalImagingPanel(): Panel
 	
 	PauseUpdate; Silent 1		// building window...
-	NewPanel /K=1 /W=(485,145, 700,325) as "Thermal Imaging Panel"
+	NewPanel /K=1 /W=(485,145, 700,355) as "Thermal Imaging Panel"
 	SetDrawLayer UserBack
 		
 	SetVariable sv_Rsense,pos={16,20},size={180,18},title="Rsense (kOhm)", limits={0,inf,1}
 	SetVariable sv_Rsense,value= root:packages:TemperatureControl:gRsense,live= 1
-	SetVariable sv_Setpoint,pos={16,49},size={180,18},title="Rcant set point (kOhm)", limits={0,inf,1}
-	SetVariable sv_Setpoint,value= root:packages:TemperatureControl:Imaging:gRcant,live= 1
+	SetVariable sv_RcantSetpoint,pos={16,49},size={180,18},title="Rcant set point (kOhm)", limits={0,inf,1}
+	SetVariable sv_RcantSetpoint,value= root:packages:TemperatureControl:Imaging:gRcant,live= 1
 	
-	Popupmenu pp_scanmode,pos={16,80},size={135,18},title="Scan Mode"
+	Popupmenu pp_scanmode,pos={16,112},size={135,18},title="Scan Mode"
 	Popupmenu pp_scanmode,value= root:packages:TemperatureControl:Imaging:gScanModeNames,live= 1, proc=ScanModeProc
 	
-	Button but_start,pos={16,112},size={67,20},title="Start PID", proc=ThermalImagingButtonFunc
-	Button but_stop,pos={133,112},size={63,20},title="Stop PID", proc=ThermalImagingButtonFunc
+	SetVariable sv_VcantSetpoint,pos={16,146},size={180,18},title="Vsense setpoint (V)", limits={0,inf,.01}
+	SetVariable sv_VcantSetpoint,value= root:packages:TemperatureControl:Imaging:gVcant,live= 1//,disable=2
+	SetVariable sv_VcantSetpoint,proc=UpdateThermalSetpoint
+	
+	SetDrawEnv fsize= 14
+	DrawText 16,99, "Heating:"
+	Button but_start,pos={71,81},size={49,20},title="Start", proc=ThermalImagingButtonFunc
+	Button but_stop,pos={150,81},size={49,20},title="Stop", proc=ThermalImagingButtonFunc
 		
 	ValDisplay vd_statusLED, value=str2num(root:packages:MFP3D:Main:PIDSLoop[%Status][5])
 	ValDisplay vd_statusLED, mode=2, limits={-1,1,0}, highColor= (0,65280,0), zeroColor= (65280,65280,16384)
-	ValDisplay vd_statusLED, lowColor= (65280,0,0), pos={103,115},size={15,15}, bodyWidth=15, barmisc={0,0}
+	ValDisplay vd_statusLED, lowColor= (65280,0,0), pos={127,84},size={15,15}, bodyWidth=15, barmisc={0,0}
 		
 	SetDrawEnv fstyle= 1 
 	SetDrawEnv textrgb= (0,0,65280)
-	DrawText 49,169, "Suhas Somnath, UIUC 2010"
+	DrawText 49,192, "Suhas Somnath, UIUC 2010"
 End	
 
 Function ScanModeProc(pa) : PopupMenuControl
@@ -229,6 +242,16 @@ Function ScanModeProc(pa) : PopupMenuControl
 				MainPopupFunc("ImagingModePopup_0",1,"Contact")
 				CrossPointSetup(1)
 			endif
+			//if (gScanMode == 3)
+				ThermalzPIDSetup()
+				// if and when engaging:
+				// Check if heated. Only if heated -> engage
+				// Otherwise setpoint will not be met full 150V will be applied
+				//Thermal feedback - enable Vcant setpoint
+				//ModifyControl sv_VcantSetpoint, disable=0
+			//else
+				//ModifyControl sv_VcantSetpoint, disable=2
+			//endif
 			setUpVcantWindow()
 			break
 	endswitch
@@ -236,6 +259,78 @@ Function ScanModeProc(pa) : PopupMenuControl
 	SetDataFolder dfSave
 	
 End //ScanModeProc
+
+function ThermalzPIDSetup()
+	
+	// This function is pretty much useless. Temp1.ipf >> ARGetImagingMode
+	// will overwrite all this. Make changes there. 
+		
+	String dfSave = GetDataFolder(1)
+	SetDataFolder root:packages:TemperatureControl:Imaging
+	NVAR gVcant
+	SVAR gZfeedbackChannel
+	
+	// part a) -> intial standard set up	
+	Make/O/T parms
+	td_RG("PIDSLoop.2",parms)
+	parms[0] = gZfeedbackChannel // Input Channel
+	parms[1] = "Height" // Output channel
+	parms[2] = "No" // Dynamic Setpoint
+	parms[3] = num2str(gVcant)// Setpoint
+	parms[4] = "0" // Setpoint offset
+	parms[5] = "0" // DGain
+	parms[6] = "0" // P gain (~3 kOhm)
+	parms[7] = "1000" // I Gain
+	parms[8] = "0" // S Gain
+	parms[9] = "-10" // Input Min
+	parms[10] = "150" // Output Max
+	parms[11] = "Always" // Start Event
+	parms[12] = "Never" // Stop Event
+	parms[13] = "-1"
+	td_WG("PIDSLoop.2",parms)
+
+	//Setting the status = 0 is equivalent to clicking the write button
+	//PIDPanelButtonFunc("Write",5)
+	PIDPanelButtonFunc("Read",2)
+			
+	SetDataFolder DfSave
+	
+end
+
+Function UpdateThermalSetpoint(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+
+	switch( sva.eventCode )
+		case 1: // mouse up
+		case 2: // Enter key
+		case 3: // Live update
+			Variable dval = sva.dval
+
+			String dfSave = GetDataFolder(1)
+			SetDataFolder root:packages:TemperatureControl:Imaging
+			NVAR gVcant, gScanMode
+			SVAR gZfeedbackChannel
+			// Do all this only if scan mode is Thermal
+			if (gScanMode == 3 && td_RV("PIDSLoop.2.Status") > 0)
+				Make/O/T parms
+				td_RG("PIDSLoop.2",parms)
+				// Don't assume that PIDS has been setup appropriately.
+				// Read the PID 2 input channel
+				if(cmpstr(parms[0],gZfeedbackChannel) == 0)
+					// PIDS on thermal feedback - go ahead and update PIDS
+					Variable errcode = td_WV("PIDSLoop.2.Setpoint",gVcant);
+					if(errcode == 1117)
+						print "Error: PID Loop not running"
+					endif
+				endif
+			endif
+			SetDataFolder dfSave
+			break
+	endswitch
+
+	return 0
+End
+
 
 Function ThermalImagingButtonFunc(ctrlname) : ButtonControl
 	String ctrlname
@@ -627,6 +722,8 @@ Function StopIVChar(ctrlname) : ButtonControl
 	
 	gAbort = 1
 	
+	ModifyControl but_start, disable=0, title="Start"
+	
 	SetDataFolder dfSave
 	
 End
@@ -652,6 +749,7 @@ Function StartIVChar(ctrlname) : ButtonControl
 	Variable numsteps = gNumsteps
 	Variable delay =gDelay	* 60 // per sec
 	Variable rsense = gRsense
+	gAbort = 0
 	
 	Wave Vtotalwave, VsenseWave, VcantWave, RcantWave, PcantWave, IcantWave
 	Redimension/N=(NumSteps+1) Vtotalwave, VsenseWave, VcantWave, RcantWave, PcantWave, IcantWave
@@ -691,6 +789,8 @@ Function StartIVChar(ctrlname) : ButtonControl
 	Edit/K=1 VTotalWave,VsenseWave,VCantWave,RCantWave,PCantWave,ICantWave
 	
 	SetDataFolder dfSave
+	
+	ModifyControl but_start, disable=0, title="Start"
 	
 	td_WV("Output.A",0.5)
 	
