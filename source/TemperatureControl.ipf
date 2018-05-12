@@ -13,14 +13,19 @@
 ///////////////////////////////////////////////// VERSION LOG  /////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Upcoming changes:
-// ramp + pulse
-// realtime setpoint updating
+// ramp + pulse (requires BG fun monitoring? what if line ends before ramp has completed.)
+// proportional gain for TF-AFM
+
+// Version 1.5:
+// Realtime Lithography & Imaging setpoint updating
+// Refresh button on meter panel restarting everthing. Now restarting Bg fun only.
+// Stopping the PID now does NOT unlock the autochange XPT. 
 
 // Version 1.4:
+// Cleaned up IV calibration UI
 // IV calibration now running as a backgroung process (takes 1/10 as many data points though)
 
 //Version 1.3
-//Largest changes:
 // Added a refresh button to meter panel
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -68,7 +73,7 @@ Function TempContMeterDriver()
 	Variable/G GPcant = 0
 	Variable/G GVtot = 0
 	Variable/G GrunMeter = 1
-	
+		
 	// Setting up all the backend wiring:
 	SetupVcantAlias()
 	forceLateral()
@@ -81,7 +86,7 @@ Function TempContMeterDriver()
 	//GrunMeter = 1;CtrlBackground period=5,start
 	//The delay I've given the background function has
 	// a value of 5. or a delay of (5/60 = 1/12 sec) or 12 hz.
-	ARBackground("bgThermalMeter",5,"")
+	ARBackground("bgThermalMeter",10,"")
 	
 	//Reset the datafolder to the root / previous folder
 	SetDataFolder dfSave
@@ -94,11 +99,11 @@ Function RestartThermalMeterPanel(ctrlname) : ButtonControl
 	String ctrlname
 
 // Setting up all the backend wiring:
-	SetupVcantAlias()
-	forceLateral()
-	ThermalPIDSetup()
-	setLinearCombo()
-	td_wv("output.A",0.5)
+	//SetupVcantAlias()
+	//forceLateral()
+	//ThermalPIDSetup()
+	//setLinearCombo()
+	//td_wv("output.A",0.5)
 		
 	// Starting background process here:
 	//SetBackground bgThermalMeter()
@@ -243,7 +248,7 @@ Window ThermalImagingPanel(): Panel
 	SetVariable sv_Rsense,pos={16,20},size={180,18},title="Rsense (kOhm)", limits={0,inf,1}
 	SetVariable sv_Rsense,value= root:packages:TemperatureControl:gRsense,live= 1
 	SetVariable sv_RcantSetpoint,pos={16,49},size={180,18},title="Rcant set point (kOhm)", limits={0,inf,1}
-	SetVariable sv_RcantSetpoint,value= root:packages:TemperatureControl:Imaging:gRcant,live= 1
+	SetVariable sv_RcantSetpoint,value= root:packages:TemperatureControl:Imaging:gRcant,live= 1, proc= UpdateRcant
 	
 	Popupmenu pp_scanmode,pos={16,112},size={135,18},title="Scan Mode"
 	Popupmenu pp_scanmode,value= root:packages:TemperatureControl:Imaging:gScanModeNames,live= 1, proc=ScanModeProc
@@ -254,8 +259,8 @@ Window ThermalImagingPanel(): Panel
 	
 	SetDrawEnv fsize= 14
 	DrawText 16,99, "Heating:"
-	Button but_start,pos={71,81},size={49,20},title="Start", proc=ThermalImagingButtonFunc
-	Button but_stop,pos={150,81},size={49,20},title="Stop", proc=ThermalImagingButtonFunc
+	Button but_start,pos={71,81},size={49,20},title="Start", proc=StartImagingPID
+	Button but_stop,pos={150,81},size={49,20},title="Stop", proc=StopImagingPID
 		
 	ValDisplay vd_statusLED, value=str2num(root:packages:MFP3D:Main:PIDSLoop[%Status][5])
 	ValDisplay vd_statusLED, mode=2, limits={-1,1,0}, highColor= (0,65280,0), zeroColor= (65280,65280,16384)
@@ -288,7 +293,7 @@ Function ScanModeProc(pa) : PopupMenuControl
 				ThermalzPIDSetup()
 				// if and when engaging:
 				// Check if heated. Only if heated -> engage
-				// Otherwise setpoint will not be met full 150V will be applied
+				// Otherwise setpoint will not be met. full 150V will be applied -> breaking the cantilever
 				//Thermal feedback - enable Vcant setpoint
 				//ModifyControl sv_VcantSetpoint, disable=0
 			//else
@@ -374,36 +379,49 @@ Function UpdateThermalSetpoint(sva) : SetVariableControl
 End
 
 
-Function ThermalImagingButtonFunc(ctrlname) : ButtonControl
+Function StopImagingPID(ctrlname) : ButtonControl
 	String ctrlname
-	
-	Variable RemInd = FindLast(CtrlName,"_")
-	if (RemInd > -1)
-		CtrlName = CtrlName[RemInd+1,Strlen(CtrlName)-1]
-	else
-		print "Error in Button function"
-		return -1
-	endif
-	
-	String dfSave = GetDataFolder(1)
-	SetDataFolder root:packages:TemperatureControl:Imaging
-		
-	strswitch (ctrlName)
-		case "start":
-			startImagingPID()
-		break
-				
-		case "stop":
-			StopPID()
-		break		
-	endswitch
-	
-	SetDataFolder dfSave
-	
+	StopPID()
 End
 
-Function startImagingPID()
+Function UpdateRcant(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+
+	switch( sva.eventCode )
+		case 1: // mouse up
+		case 2: // Enter key
+		case 3: // Live update
+			Variable dval = sva.dval
 			
+			String dfSave = GetDataFolder(1)
+			
+			SetDataFolder root:Packages:TemperatureControl
+			NVAR gRsense
+			SetDataFolder root:Packages:TemperatureControl:Imaging
+			NVAR gRcant
+			gRcant = dval;
+			
+			
+			
+			// Completely update PID ONLY if already running
+			if(td_RV("PIDSLoop.5.Status")==1)
+				print "PID running. Therefore I am updating"
+				SetPID(-1*(1+(gRcant/gRsense)))
+				td_WV("PIDSLoop.5.Status",1);
+			endif
+			
+			
+			SetDataFolder dfSave
+			break
+	endswitch
+
+	return 0
+End
+
+Function startImagingPID(ctrlname) : ButtonControl
+	String ctrlname
+	
+	String dfSave = GetDataFolder(1)		
 	SetDataFolder root:packages:TemperatureControl
 	NVAR gRsense
 	SetDataFolder root:packages:TemperatureControl:Imaging
@@ -414,6 +432,7 @@ Function startImagingPID()
 	//SetupVcantAlias()
 	
 	SetPID(-1*(1+(gRcant/gRsense)))
+	SetDataFolder dfSave
 	
 	//td_WS("Event.12","once"); 
 	td_WV("PIDSLoop.5.Status",1);
@@ -465,6 +484,9 @@ Function ThermalLithoDriver()
 	Variable RNorm = NumVarOrDefault(":gRNorm",3)
 	Variable/G gRNorm= RNorm
 	Variable/G gAllowHeating = 0
+	// -1 - unheated, 0 - warm / normal mode, 1 - litho / imaging (fully heated)
+	Variable HeatingState = NumVarOrDefault(":gHeatingState",-1)
+	Variable/G gHeatingState= HeatingState
 	
 	// Create the control panel.
 	Execute "ThermalLithoPanel()"
@@ -496,8 +518,8 @@ Window ThermalLithoPanel(): Panel
 	SetVariable sv_RNorm,pos={16,80},size={180,18},title="R Normal (kOhm)", limits={0,inf,1}, proc=UpdateNormSetpt
 	SetVariable sv_RNorm,value= root:packages:TemperatureControl:Lithography:gRNorm,live= 1
 	
-	Button but_start,pos={16,110},size={67,20},title="Start PID", proc=ThermalLithoButtonFunc
-	Button but_stop,pos={133,110},size={63,20},title="Stop PID", proc=ThermalLithoButtonFunc//, disable=2
+	Button but_start,pos={16,110},size={67,20},title="Start PID", proc=ThermalLithoButtonFunc,live= 1
+	Button but_stop,pos={133,110},size={63,20},title="Stop PID", proc=ThermalLithoButtonFunc,live= 1//, disable=2
 	
 	ValDisplay vd_statusLED, value=str2num(root:packages:MFP3D:Main:PIDSLoop[%Status][5])
 	ValDisplay vd_statusLED, mode=2, limits={-1,1,0}, highColor= (0,65280,0), zeroColor= (65280,65280,16384)
@@ -518,8 +540,34 @@ Function UpdateLithoSetpt(sva) : SetVariableControl
 		case 3: // Live update
 			String dfSave = GetDataFolder(1)
 			SetDataFolder root:packages:TemperatureControl:Lithography
-			NVAR gRLitho
+			NVAR gRLitho, gHeatingState
 			gRLitho = sva.dval
+			if(gHeatingState == 1)
+				// Real-time updating of setpoint
+				SetHeat(1);
+			endif
+			SetDataFolder dfSave;
+			break
+	endswitch
+
+	return 0
+End
+
+Function UpdateNormSetpt(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+
+	switch( sva.eventCode )
+		case 1: // mouse up
+		case 2: // Enter key
+		case 3: // Live update
+			String dfSave = GetDataFolder(1)
+			SetDataFolder root:packages:TemperatureControl:Lithography
+			NVAR gRNorm, gHeatingState
+			gRNorm = sva.dval
+			if(gHeatingState == 0)
+				// Real-time updating of setpoint
+				SetHeat(0);
+			endif
 			SetDataFolder dfSave;
 			break
 	endswitch
@@ -590,7 +638,7 @@ Function SetHeat(mode)
 	
 	SetDataFolder root:packages:TemperatureControl:Lithography
 	
-	NVAR gRNorm, gRLitho, gAllowHeating
+	NVAR gRNorm, gRLitho, gAllowHeating, gHeatingState
 	
 	if(!gAllowHeating)
 		SetDataFolder dfSave
@@ -598,9 +646,10 @@ Function SetHeat(mode)
 	endif
 
 	// 1 - Stop PID (so that mode can be changed)
-	td_WV("PIDSLoop.5.Status",-1);
+	//td_WV("PIDSLoop.5.Status",-1);
 	
 	// 2 - set correct PGain value
+	gHeatingState = mode;
 	if(mode)
 		//Litho mode
 		SetPID(-1*(1+(gRLitho/gRsense)))
@@ -947,6 +996,7 @@ End
 
 Function SetPID(pgain)
 	Variable pgain
+	String dfSave = GetDataFolder(1)
 	SetDataFolder root:packages:TemperatureControl
 	Wave/T parms
 	// only modify Pgain and status
@@ -954,6 +1004,7 @@ Function SetPID(pgain)
 	parms[13] = "0"
 	// but still have to rewrite the group to controller
 	td_WG("PIDSLoop.5",parms)
+	SetDataFolder dfSave
 	
 End
 
@@ -965,7 +1016,13 @@ Function StopPID()
 	PIDPanelButtonFunc("Read",5)
 	// If the user doesn't want to do anything with the thermal panel
 	// this should not affect future actions:
-	ARCheckFunc("DontChangeXPTCheck",0)
+	//ARCheckFunc("DontChangeXPTCheck",0)
+	
+	String dfSave = GetDataFolder(1)
+	SetDataFolder root:packages:TemperatureControl:Lithography
+	NVAR gHeatingState
+	gHeatingState = -1
+	SetDataFolder dfSave
 End
 
 Function SetupVcantAlias()
