@@ -69,14 +69,14 @@ AFM controllers for this code to work accurately.
 
 |Schematic|
 
-1. Connect the Expansion port (25 pin serial) on the AFM controller to
-the Voltage follower box
+1. Connect the ``Expansion port`` (25 pin serial) on the ``AFM controller`` to
+the ``Voltage follower box``
 
-2. Connect V\ :sub:`S` (voltage across R\ :sub:`S`) to the in0 labeled
+2. Connect V\ :sub:`S` (voltage across R\ :sub:`S`) to the ``in0`` labeled
 on the voltage follower box
 
 3. Connect V\ :sub:`T` to the in1 labeled on the voltage follower box
-and to BNCout0 on the AFM controller. You can use a BNC T-split for
+and to ``BNCout0`` on the AFM controller. You can use a ``BNC T-split`` for
 this.
 
 Software Installation
@@ -86,48 +86,49 @@ Software Installation
 2. Copy the hacks present in each Asylum source code file in the ``hooks`` folder to the corresponding file used by your AFM.
 
    * I have used comments with my name to delineate the start and ends of each hack
-   * Search for "Suhas" to find each of the modifications
+   * Search for ``Suhas`` to find each of the modifications
    * Modify your file accordingly.
-3. Accessing the Heated Cantilever Suite: In the top menu bar of the AFM
-   software: UIUC >> Heated Cantilever Suite >>
+3. Accessing the Heated Cantilever Suite: In the top ``menu bar`` of the AFM
+   software: ``UIUC`` >> ``Heated Cantilever Suite`` >>
 
 |image1|
 
- Cantilever Electrical Characterization 
-========================================
+Cantilever Electrical Characterization
+---------------------------------------
 
 |image2|
 
-Introduction:
+Introduction
+~~~~~~~~~~~~~
 
--  This package is accessed by clicking on UIUC >> Heated Cantilever
-   Suite >> I-V Characterization.
+-  This package is accessed by clicking on ``UIUC`` >> ``Heated Cantilever Suite`` >> ``I-V Characterization``.
 
 -  This package lets you electrically characterize the probe by linearly
    ramping the voltage being applied across the heating circuit.
 
-Parameters:
+Parameters
+~~~~~~~~~~~
 
--  ``R sense (k Ohm)``: The resistance of the sense resistor in kΩ. You
-   can apply at most 10V with this setup so choose your sense resistor
+-  ``R sense (k Ohm)``: The resistance of the sense resistor in ``kΩ``. You
+   can apply at most ``10V`` with this setup so choose your sense resistor
    that will allow you to access the cantilever temperatures you are
-   interested in. I advise you to pick sense resistors in the range of 1
-   to 5 kΩ. The value entered here will persist throughout the AFM
+   interested in. I advise you to pick sense resistors in the range of ``1``
+   to ``5 kΩ``. The value entered here **will persist** throughout the AFM
    software.
 
 -  ``V initial (V):`` Initial voltage to be applied across the circuit
-   (0V <= V initial <10V). Lower ranges of voltage (0-1V) are typically
+   (0V <= ``V initial`` <10V). Lower ranges of voltage (0-1V) are typically
    less reliable. 1V should be just fine.
 
 -  ``V final (V)``: Maximum voltage that will be applied across the
-   circuit (0V < V final <= 10V). I advise you to start with something
-   small like 2V and go as high as necessary.
+   circuit (0V < ``V final`` <= 10V). I advise you to start with something
+   small like ``2V`` and go as high as necessary.
 
 -  ``Delay (sec)``: Time delay in seconds between measurement points.
    Larger the delay, greater the number of points of data being
    averaged. Any time greater than 1 sec will not necessarily improve
    the accuracy of the results greatly. Ensure that the delay is at
-   least 250 msec.
+   least ``250 msec``.
 
 -  ``V step (V)``: Incremental voltage being applied across the circuit
    between measurement points.
@@ -135,7 +136,8 @@ Parameters:
 -  ``Show data:`` If this is left checked, a table will pop up with the
    results of the IV characterization.
 
-Running an Experiment:
+Running an Experiment
+~~~~~~~~~~~~~~~~~~~~~~
 
 -  Once the above parameters are specified, you may click the ‘Start’
    button. If it does nothing on the first click, click it again.
@@ -163,23 +165,24 @@ Running an Experiment:
    -  Current through the cantilever
 
 Cantilever Temperature Control Meter
-====================================
+------------------------------------
 
 |image3|
 
-Introduction:
+Introduction
+~~~~~~~~~~~~~
 
--  This panel is initialized automatically when either the Thermal
-   Lithography or Thermal Imaging packages are accessed.
+-  This panel is initialized automatically when either the ``Thermal Lithography`` or
+   ``Thermal Imaging`` windows are accessed.
 
--  This panel can be accessed by clicking on UIUC >> Heated Cantilever
-   Suite >> Meter Panel
+-  This panel can be accessed by clicking on ``UIUC`` >> ``Heated Cantilever Suite`` >> ``Meter Panel``
 
 -  This panel provides real-time information about the cantilever’s
    resistance, power dissipation, voltage across the circuit, current
    through the circuit, etc.
 
-Parameters:
+Parameters
+~~~~~~~~~~
 
 -  ``Reinitialize``: This button reinitializes the code necessary to run
    this panel
@@ -187,7 +190,7 @@ Parameters:
 -  ``Refresh``: This button can be used in the rare event that the data
    in the meter stops refreshing.
 
--  ``PID Status``: This LED provides the status of the PID loop that
+-  ``PID Status``: This LED provides the status of the ``PID loop`` that
    maintains the cantilever temperature constant:
 
    -  Green: PID loop running
@@ -197,26 +200,27 @@ Parameters:
    -  Red: PID loop disabled.
 
 Thermal Lithography
-===================
+-------------------
 
 |image4|
 
-Introduction:
+Introduction
+~~~~~~~~~~~~~
 
--  This package is accessed by clicking on UIUC >> Heated Cantilever
-   Suite >> Thermal Lithography
+-  This package is accessed by clicking on ``UIUC`` >> ``Heated Cantilever Suite`` >> ``Thermal Lithography``
 
 -  This window allows you to perform thermal lithography with a heated
    cantilever. The lithography lines / patterns drawn either using
-   Microangelo or SmartLitho can be synchronized if appropriate triggers
+   ``Microangelo`` or `SmartLitho <https://github.com/ssomnath/smart_litho>`_ can be synchronized if appropriate triggers
    are inserted into Asylum's code. With the trigger code inserted, this
    package is capable of switching the cantilever's temperature from
    warm to hot and vice-versa when performing lithography.
 
--  Once this package is accessed, the ‘Temperature Control Meter’ panel
+-  Once this package is accessed, the ``Temperature Control Meter`` panel
    starts up as well.
 
-Parameters:
+Parameters
+~~~~~~~~~~
 
 -  ``R sense (k Ohm):`` The resistance of the sense resistor in kilo
    ohms. See notes on the I-V characterization section for more details.
@@ -229,7 +233,7 @@ Parameters:
 
 -  ``Start PID:`` This initializes and starts the PID loop that controls
    the cantilever temperature. Start the PID just before performing
-   lithography and then click ‘Do Litho’ in the Litho Panel to perform
+   lithography and then click ``Do Litho`` in the ``Litho Panel`` to perform
    lithography. The cantilever will not be heated unless the PID is
    started. When the PID is started, the square window to the right of
    the Start PID button will turn green indicating that the PID is
@@ -239,7 +243,7 @@ Parameters:
    use this button to stop the heating. If the experiment proceeds
    normally, the heating will be discontinued once the lithography is
    completed or the lithography is aborted by the user by clicking on
-   ‘Stop Litho’ in the Litho Panel.
+   ``Stop Litho`` in the Litho Panel.
 
 **Note** - Due to limitations of Asylum's hardware & software, the above
 mentioned cantilever resistance set-points may not be maintained very
@@ -247,14 +251,13 @@ accurately (although the precision is very good). For typical purposes,
 the inaccuracy should be acceptable. Use the meter panel to tweak the
 set-points until the desired set-point is reached in the meter panel.
 
-Don't set the Rcant setpoint too close to the room temperature
-resistance of the cantilever.
-
-This causes the PID control to approach a singularity point. In this
-case 0V will be applied to the circuit resulting in no damage to the
+Don't set the ``Rcant`` setpoint too close to the room temperature
+resistance of the cantilever. This causes the PID control to approach a singularity. In this
+case ``0 V`` will be applied to the circuit. This will NOT result in damage to the
 cantilever.
 
-Cantilever Temperature Ramp:
+Cantilever Temperature Ramp
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 -  This package also allows slow ramping of cantilever temperature while
    performing lithography. This feature is disabled by default.
@@ -264,7 +267,7 @@ Cantilever Temperature Ramp:
    current line / feature is completed and that of the next line starts,
    the temperature ramp starts from the beginning again.
 
--  The ramp starts with the specified R Litho and ramps up to R max.
+-  The ramp starts with the specified ``R Litho`` and ramps up to ``R max``.
 
 -  ``Ramp Temperature``: This needs to be checked to enable ramping of
    temperature during lithography
@@ -278,25 +281,26 @@ Cantilever Temperature Ramp:
    ends.
 
 Thermal Topography Imaging
-==========================
+---------------------------
 
 |image5|
 
-Introduction:
+Introduction
+~~~~~~~~~~~~
 
--  This package is accessed by clicking on UIUC >> Heated Cantilever
-   Suite >> Thermal Imaging
+-  This package is accessed by clicking on ``UIUC`` >> ``Heated Cantilever Suite`` >> ``Thermal Imaging``
 
 -  This window allows you to perform thermal topography imaging with a
    heated cantilever.
 
--  Once this package is accessed, the ‘Temperature Control Meter’ panel
+-  Once this package is accessed, the ``Temperature Control Meter`` panel
    starts up as well.
 
-Parameters:
+Parameters
+~~~~~~~~~~
 
 -  ``R sense (k Ohm):`` The resistance of the sense resistor in kilo
-   ohms. See notes on the I-V characterization section for more details.
+   ohms. See notes on the ``I-V characterization`` section for more details.
 
 -  ``R cant (k Ohm):`` This is the cantilever's resistance setpoint to
    be maintained when performing topography imaging.
@@ -314,7 +318,7 @@ Parameters:
 
 -  ``Start PID:`` This initializes and starts the PID loop that controls
    the cantilever temperature. Start the PID just before performing
-   imaging and then click ‘Do Scan’ in the Master Panel to perform
+   imaging and then click ``Do Scan`` in the ``Master Panel`` to perform
    topography imaging. The cantilever will not be heated unless the PID
    is started. When the PID is started, the square window to the right
    of the Start PID button will turn green indicating that the PID is
@@ -323,8 +327,7 @@ Parameters:
 -  ``Stop PID:`` Should the experiment go awry for some reason, you can
    use this button to stop the heating. If the experiment proceeds
    normally, the heating will be discontinued once the imaging is
-   completed or the imaging is aborted by the user by clicking on ‘Stop
-   Scan’ in the Master Panel.
+   completed or the imaging is aborted by the user by clicking on ``Stop Scan`` in the ``Master Panel``.
 
 .. |Schematic| image:: media/image1.png
    :width: 3.12083in
