@@ -18,7 +18,15 @@ This software suite controls cantilever temperature in closed loop
 feedback using the AFM controller’s electronics to improve lithography
 and imaging performance of heated cantilevers.
 
-Disclaimer:
+Journal papers using this software
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+1. Somnath, Suhas, Elise A. Corbin, and William P. King. "Improved nanotopography sensing via temperature control of a heated atomic force microscope cantilever." IEEE Sensors Journal 11, no. 11 (2011): 2664-2670.
+2. Kim, Hoe Joon, Nicolaie Moldovan, Jonathan R. Felts, Suhas Somnath, Zhenting Dai, Tevis DB Jacobs, Robert W. Carpick, John A. Carlisle, and William P. King. "Ultrananocrystalline diamond tip integrated onto a heated atomic force microscope cantilever." Nanotechnology 23, no. 49 (2012): 495302.
+3. Liu, Joseph O., Suhas Somnath, and William P. King. "Heated atomic force microscope cantilever with high resistivity for improved temperature sensitivity." Sensors and Actuators A: Physical 201 (2013): 141-147.
+4. Somnath, Suhas, and William P. King. "An investigation of heat transfer between a microcantilever and a substrate for improved thermal topography imaging." Nanotechnology 25, no. 36 (2014): 365501.
+5. Somnath, Suhas, Joseph O. Liu, Mete Bakir, Craig B. Prater, and William P. King. "Multifunctional atomic force microscope cantilevers with Lorentz force actuation and self-heating capability." Nanotechnology 25, no. 39 (2014): 395501.
+
+Disclaimer
 ~~~~~~~~~~~
 
 This code is foreign to the existing AFM software. I have worked around
@@ -330,14 +338,6 @@ Parameters
    use this button to stop the heating. If the experiment proceeds
    normally, the heating will be discontinued once the imaging is
    completed or the imaging is aborted by the user by clicking on ``Stop Scan`` in the ``Master Panel``.
-   
-Journal papers using this software
------------------------------------
-1. Somnath, Suhas, Elise A. Corbin, and William P. King. "Improved nanotopography sensing via temperature control of a heated atomic force microscope cantilever." IEEE Sensors Journal 11, no. 11 (2011): 2664-2670.
-2. Kim, Hoe Joon, Nicolaie Moldovan, Jonathan R. Felts, Suhas Somnath, Zhenting Dai, Tevis DB Jacobs, Robert W. Carpick, John A. Carlisle, and William P. King. "Ultrananocrystalline diamond tip integrated onto a heated atomic force microscope cantilever." Nanotechnology 23, no. 49 (2012): 495302.
-3. Liu, Joseph O., Suhas Somnath, and William P. King. "Heated atomic force microscope cantilever with high resistivity for improved temperature sensitivity." Sensors and Actuators A: Physical 201 (2013): 141-147.
-4. Somnath, Suhas, and William P. King. "An investigation of heat transfer between a microcantilever and a substrate for improved thermal topography imaging." Nanotechnology 25, no. 36 (2014): 365501.
-5. Somnath, Suhas, Joseph O. Liu, Mete Bakir, Craig B. Prater, and William P. King. "Multifunctional atomic force microscope cantilevers with Lorentz force actuation and self-heating capability." Nanotechnology 25, no. 39 (2014): 395501.
 
 .. |Schematic| image:: media/image1.png
    :width: 3.12083in
