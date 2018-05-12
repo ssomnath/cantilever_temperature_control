@@ -2,11 +2,17 @@
 
 Menu "Macros"
 	Submenu "Temperature Control"
+		"Check Circuit Wiring", ThermalWiringChecker()
 		"I-V Characaterization", IVCharDriver()
 		"Thermal Imaging", ThermalImagingDriver()
 		"Thermal Lithography", ThermalLithoDriver()
 		"Meter Panel", TempContMeterDriver()
 	End	
+End
+
+Function ThermalWiringChecker()
+	CrossPointSetup(-1)
+	CheckWiring(0)
 End
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -31,7 +37,6 @@ Function TempContMeterDriver()
 	Variable/G GIcant = 0
 	Variable/G GPcant = 0
 	Variable/G GVtot = 0
-	Variable/G gVcant=0
 	Variable/G GrunMeter = 1
 		
 	// Starting background process here:
@@ -67,11 +72,11 @@ Window TempContMeterPanel(): Panel
 	
 	ValDisplay vd_Vcant,pos={58,123},size={346,20},title="V cant (V)", mode=0
 	ValDisplay vd_Vcant,limits={0,10,0},barmisc={0,70},highColor= (0,43520,65280)
-	ValDisplay vd_Vcant, fsize=18, value=root:Packages:TemperatureControl:Meter:GVcant
+	ValDisplay vd_Vcant, fsize=18, value=Root:Packages:MFP3D:Meter:Lateral
 	
 	ValDisplay vd_Vtot,pos={74,157},size={331,20},title="V tot (V)", mode=0
 	ValDisplay vd_Vtot,limits={0,10,0},barmisc={0,70},highColor= (0,43520,65280)
-	ValDisplay vd_Vtot, fsize=18, value=root:Packages:TemperatureControl:Meter:GVtot
+	ValDisplay vd_Vtot, fsize=18, value=Root:Packages:MFP3D:Meter:ReadMeterRead[%UserIn0][0]+Root:Packages:MFP3D:Meter:Lateral
 	
 	ValDisplay vd_statusLED, value=str2num(root:packages:MFP3D:Main:PIDSLoop[%Status][5])
 	ValDisplay vd_statusLED, mode=2, limits={-1,1,0}, highColor= (0,65280,0), zeroColor= (65280,65280,16384)
@@ -89,7 +94,12 @@ Function bgThermalMeter()
 	
 	//WAVE tempWave = Root:Packages:MFP3D:Meter:ReadMeterRead
 	//Variable Vsense = tempWave[%UserIn0][0]
-		
+	
+	//SetDataFolder Root:Packages:MFP3D:Meter
+	//NVAR Lateral
+	
+	//Variable Vcant = Lateral
+	
 	Variable Vsense = td_RV("UserIn0")
 
 	Variable Vcant = td_RV("Lateral")
@@ -97,13 +107,12 @@ Function bgThermalMeter()
 	SetDataFolder root:packages:TemperatureControl
 	NVAR gRsense
 	SetDataFolder root:packages:TemperatureControl:Meter
-	NVAR gRcant, gPcant, gIcant, gRunMeter, gVtot, gVcant
+	NVAR gRcant, gPcant, gIcant, gRunMeter, gVtot, gCount
 		
 	gIcant = Vsense / gRsense // in mA
 	gPcant = Vcant * gIcant // in mW
 	gRcant = Vcant / gIcant // in kOhms
 	gVtot = Vsense + Vcant // in V
-	gVcant = Vcant
 	
 	SetDataFolder dfSave	
 		
@@ -131,6 +140,8 @@ Function ThermalImagingDriver()
 	
 	Variable rsense = NumVarOrDefault(":gRsense",0.98)
 	Variable/G gRsense= rsense
+	Variable wireChecked = NumVarOrDefault(":gWireChecked",0)
+	Variable/G gWireChecked = wireChecked
 	
 	NewDataFolder/O/S root:packages:TemperatureControl:Imaging
 	
@@ -144,13 +155,10 @@ Function ThermalImagingDriver()
 	setLinearCombo()
 	SetupVcantAlias()
 	SetupVcantWindow()
-	TempContMeterDriver()
 	
-	//Check to make sure cables are properly plugged in:
-	DoAlert 1,"Do you want me to check if all electrical connections\nhave correctly been wired?\n(Strongly Recommended)"
-	if(V_flag==1)
-		// Yes clicked
-		CheckWiring()
+	if(wireChecked == 0)
+		//Check to make sure cables are properly plugged in:
+		CheckWiring(1)
 	endif
 	
 	// Create the control panel.
@@ -258,6 +266,31 @@ Function startImagingPID()
 	PIDPanelButtonFunc("Read",5)	
 End
 
+Function SetupVcantAlias()
+
+	// Hacking the Asylum panels to automatically shove in an Alias:
+	// To do this manually: Programming >> XOPTables >> Aliases >> User tab
+	// Edit/K=0 UserAlias.ld
+
+	String dfSave = GetDataFolder(1)
+	SetDataFolder root:packages:MFP3D:Hardware
+	// Potential goes in #18
+	//For some reason it keeps showing up as NaN despite giving good data for the topography.
+	// So I switched to Lateral. 
+	// Also easier to do the meter with a non NAN channel for Vcant
+	Wave/T UserAlias
+	Redimension/N=1 UserAlias
+	UserAlias[0] = "LinearCombo.Output"
+	SetDimLabel 0, 0, 'Lateral', UserAlias
+	Wave/T AllAlias
+	AllAlias[22] = "LinearCombo.Output"
+	
+	WriteAllAliases()
+	
+	SetDataFolder DfSave
+	
+End
+
 Function setUpVcantWindow()
 	
 	// Channel 5:
@@ -292,6 +325,8 @@ Function ThermalLithoDriver()
 	
 	Variable rsense = NumVarOrDefault(":gRsense",0.98)
 	Variable/G gRsense= rsense
+	Variable wireChecked = NumVarOrDefault(":gWireChecked",0)
+	Variable/G gWireChecked = wireChecked
 	
 	NewDataFolder/O/S root:packages:TemperatureControl:Lithography
 	
@@ -306,17 +341,11 @@ Function ThermalLithoDriver()
 	Execute "ThermalLithoPanel()"
 	
 	ThermalPIDSetup()
-	setLinearCombo()
-	SetupVcantAlias()
-	TempContMeterDriver()
 	
 	//Check to make sure cables are properly plugged in:
-	DoAlert 1,"Do you want me to check if all electrical connections\nhave correctly been wired?\n(Strongly Recommended)"
-	if(V_flag==1)
-		// Yes clicked
-		CheckWiring()
-	endif
-	
+	if(wireChecked==0)
+		CheckWiring(1)
+	endif	
 	
 	//Reset the datafolder to the root / previous folder
 	SetDataFolder dfSave
@@ -390,7 +419,7 @@ Function ThermalLithoButtonFunc(ctrlname) : ButtonControl
 End
 
 Function startLithoPID()
-		
+	
 	CrossPointSetup(3)	
 	SetHeat(0)
 	PIDPanelButtonFunc("Read",5)	
@@ -436,7 +465,241 @@ Function SetHeat(mode)
 	SetDataFolder dfSave
 	
 End
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////// IV CHARACTERIZATION //////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+Function IVCharDriver()
 	
+	// If the panel is already created, just bring it to the front.
+	DoWindow/F IVCharPanel
+	if (V_Flag != 0)
+		return 0
+	endif
+	
+	String dfSave = GetDataFolder(1)
+	
+	// Create a data folder in Packages to store globals.
+	NewDataFolder/O/S root:packages:TemperatureControl
+	
+	Variable rsense = NumVarOrDefault(":gRsense",0.98)
+	Variable/G gRsense= rsense
+	Variable wireChecked = NumVarOrDefault(":gWireChecked",0)
+	Variable/G gWireChecked = wireChecked
+	
+	NewDataFolder/O/S root:packages:TemperatureControl:IVChar
+	
+	//Variables declaration
+	Variable Vinitial = NumVarOrDefault(":gVinitial",1)
+	Variable/G gVinitial= Vinitial
+	Variable Vfinal = NumVarOrDefault(":gVfinal",1)
+	Variable/G gVfinal= Vfinal
+	Variable Vstep = NumVarOrDefault(":gVstep",1)
+	Variable/G gVstep= Vstep
+	Variable numsteps = NumVarOrDefault(":gnumsteps",1)
+	Variable/G gnumsteps= numsteps
+	Variable delay = NumVarOrDefault(":gdelay",1)
+	Variable/G gDelay= delay
+	Variable/G gAbort = 0
+	Variable/G gProgress = 0
+	
+	Make/O/N=(2) Vtotalwave
+	Make/O/N=(2) Vsensewave
+	Make/O/N=(2) Vcantwave
+	Make/O/N=(2) Rcantwave
+	Make/O/N=(2) Pcantwave
+	Make/O/N=(2) Icantwave
+	//Reset the datafolder to the root / previous folder
+	SetDataFolder dfSave
+	
+	CrossPointSetup(-1)	
+
+	//Check to make sure cables are properly plugged in:
+	if(wireChecked == 0)
+		CheckWiring(1)
+	endif
+	
+	// Create the control panel.
+	Execute "IVCharPanel()"
+	
+End
+
+
+Window IVCharPanel(): Panel
+	
+	PauseUpdate; Silent 1		// building window...
+	NewPanel /K=1 /W=(485,145, 1300,700) as "Heated Cantilever I-V Characterization Panel"
+	SetDrawLayer UserBack
+		
+	SetVariable sv_Rsense,pos={16,20},size={132,18},title="Rsense (kOhm)", limits={0,inf,1}
+	SetVariable sv_Rsense,value= root:packages:TemperatureControl:gRsense,live= 1
+	
+	SetVariable sv_Vinitial,pos={188,20},size={112,18},title="V initial (V)", limits={0,10,1}, proc=IVSetVarProc
+	SetVariable sv_Vinitial,value= root:packages:TemperatureControl:IVChar:gVinitial,live= 1
+	
+	SetVariable sv_Vstep,pos={336,20},size={105,18},title="V step (V)", limits={0,10,1}, proc=IVSetVarProc
+	SetVariable sv_Vstep,value= root:packages:TemperatureControl:IVChar:gVstep,live= 1
+	
+	SetVariable sv_steps,pos={42,57},size={105,18},title="Num steps", limits={1,inf,1}, proc=IVSetVarProc
+	SetVariable sv_steps,value= root:packages:TemperatureControl:IVChar:gNumSteps,live= 1
+	
+	ValDisplay vd_VFinal,pos={353,57},size={84,20},title="V Final"
+	ValDisplay vd_VFinal,value= root:packages:TemperatureControl:IVChar:gVFinal,live= 1
+	
+	SetVariable sv_tDelay,pos={185,57},size={120,18},title="Delay (sec)", limits={0,inf,1}
+	SetVariable sv_tDelay,value= root:packages:TemperatureControl:IVChar:gDelay,live= 1
+	
+	Button but_start,pos={468,18},size={80,25},title="Start", proc=StartIVChar
+	Button but_stop,pos={468,50},size={80,25},title="Stop", proc=StopIVChar
+	
+	ValDisplay vd_Progress,pos={566,30},size={214,20},title="Progress", mode=0, live=1
+	ValDisplay vd_Progress,limits={0,100,0},barmisc={0,40},highColor= (0,43520,65280)
+	ValDisplay vd_Progress, fsize=18, value=root:Packages:TemperatureControl:IVChar:GProgress
+	
+	String dfSave= GetDataFolder(1)
+	SetDataFolder root:packages:TemperatureControl:IVChar
+	
+	Display/W=(21,85,397,292) /HOST=# VcantWave, vs VTotalWave
+	ModifyGraph frameStyle=5
+	Label bottom "V total (V)"
+	Label left "V cant (V)"
+	RenameWindow #,G0
+	SetActiveSubwindow ##
+	
+	Display/W=(410,85,790,292) /HOST=# RcantWave, vs VTotalWave
+	ModifyGraph frameStyle=5
+	Label bottom "V total (V)"
+	Label left "R cant (k Ohms)"
+	RenameWindow #,G1
+	SetActiveSubwindow ##
+	
+	Display/W=(21,305,397,505) /HOST=# PcantWave, vs VTotalWave
+	ModifyGraph frameStyle=5
+	Label bottom "V total (V)"
+	Label left "P cant (mW)"
+	RenameWindow #,G2
+	SetActiveSubwindow ##
+	
+	Display/W=(410,305,790,505) /HOST=# IcantWave, vs VTotalWave
+	ModifyGraph frameStyle=5
+	Label bottom "V total (V)"
+	Label left "I Cant (mA)"
+	RenameWindow #,G3
+	SetActiveSubwindow ##
+	
+	SetDataFolder dfSave		
+	SetDrawEnv fstyle= 1 
+	SetDrawEnv textrgb= (0,0,65280)
+	DrawText 624,535, "Suhas Somnath, UIUC 2010"
+End	
+	
+Function IVSetVarProc(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+
+	switch( sva.eventCode )
+		case 1: // mouse up
+		case 2: // Enter key
+		case 3: // Live update
+			Variable dval = sva.dval
+			
+			String dfSave = GetDataFolder(1)
+	
+			SetDataFolder root:Packages:TemperatureControl:IVChar
+			
+			NVAR gVinitial, gVstep, gNumSteps, gVFinal
+			
+			if(gVinitial + gVstep * gNumSteps > 10)
+				gNumSteps = floor((10-gVinitial)/gVstep)
+				
+			endif
+			gVFinal = gVinitial + gVStep * gNumSteps
+			SetDataFolder dfSave
+			break
+	endswitch
+
+	return 0
+End
+
+Function StopIVChar(ctrlname) : ButtonControl
+	String ctrlname
+	
+	String dfSave = GetDataFolder(1)
+		
+	SetDataFolder root:Packages:TemperatureControl:IVChar
+	NVAR gAbort
+	
+	gAbort = 1
+	
+	SetDataFolder dfSave
+	
+End
+
+Function StartIVChar(ctrlname) : ButtonControl
+	String ctrlname
+	
+	ModifyControl but_start, disable=2, title="Running..."
+	
+	// Forcing the crosspoints to stay again:
+	CrossPointSetup(-1)
+	
+	String dfSave = GetDataFolder(1)
+	
+	SetDataFolder root:Packages:TemperatureControl
+	NVAR gRsense
+	
+	SetDataFolder root:Packages:TemperatureControl:IVChar
+	NVAR gVinitial, gVstep, gNumSteps, gDelay, gAbort, gProgress
+	
+	Variable vinitial = gVinitial
+	Variable Vstep = gVstep
+	Variable numsteps = gNumsteps
+	Variable delay =gDelay	* 60 // per sec
+	Variable rsense = gRsense
+	
+	Wave Vtotalwave, VsenseWave, VcantWave, RcantWave, PcantWave, IcantWave
+	Redimension/N=(NumSteps+1) Vtotalwave, VsenseWave, VcantWave, RcantWave, PcantWave, IcantWave
+	
+	gProgress = 0
+	
+	Variable i=0;
+	for(i=0; i<= NumSteps; i+=1)
+	
+		if(gAbort)
+			gAbort = 0
+			break
+		endif
+	
+		td_WV("Output.A",Vinitial + i*Vstep)
+		Variable Vssum = 0
+		Variable count = 0
+		Variable t0 = ticks
+		do
+			Vssum += td_RV("Input.A")
+			count += 1
+		while(ticks-t0<Delay)
+		
+		gProgress = (i/NumSteps)*100
+		print "iteration #" + num2str(i) + " now complete"
+		
+		// Calculate the varialbes now:
+		VtotalWave[i] = Vinitial + i*Vstep
+		VsenseWave[i] = Vssum / count
+		VcantWave[i] =  VTotalWave[i] - VsenseWave[i]
+		IcantWave[i] =VsenseWave[i] / rsense // in mA
+		RcantWave[i] = VcantWave[i] / IcantWave[i]
+		PcantWave[i] = VcantWave[i] * IcantWave[i]
+		
+	endfor
+	
+	Edit/K=1 VTotalWave,VsenseWave,VCantWave,RCantWave,PCantWave,ICantWave
+	
+	SetDataFolder dfSave
+	
+	td_WV("Output.A",0.5)
+	
+End
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////// GENERAL FUNCTIONS ///////////////////////////////////////////////
@@ -460,6 +723,18 @@ Function StopPID()
 	//Safety Cutoff
 	td_WV("Output.A",0.5)
 	PIDPanelButtonFunc("Read",5)
+End
+
+Function setLinearCombo()
+	
+	String dfSave = GetDataFolder(1)
+	SetDataFolder root:packages:TemperatureControl
+	
+	Make/N=(2)/O coeffWave
+	coeffWave = {0,-1}
+	td_SetLinearCombo("Input.A", coeffWave, "Output.A")
+			
+	SetDataFolder DfSave
 End
 
 function ThermalPIDSetup()
@@ -542,49 +817,19 @@ Function CrossPointSetup(scanmode)
 	td_WV("Output.A",0.5)
 End
 
-
-Function setLinearCombo()
-	
-	String dfSave = GetDataFolder(1)
-	SetDataFolder root:packages:TemperatureControl
-	
-	Make/N=(2)/O coeffWave
-	coeffWave = {0,-1}
-	td_SetLinearCombo("Input.A", coeffWave, "Output.A")
-			
-	SetDataFolder DfSave
-End
-
-Function SetupVcantAlias()
-
-	// Hacking the Asylum panels to automatically shove in an Alias:
-	// To do this manually: Programming >> XOPTables >> Aliases >> User tab
-	// Edit/K=0 UserAlias.ld
-
-	String dfSave = GetDataFolder(1)
-	SetDataFolder root:packages:MFP3D:Hardware
-	// Potential goes in #18
-	//For some reason it keeps showing up as NaN despite giving good data for the topography.
-	// So I switched to Lateral. 
-	// Also easier to do the meter with a non NAN channel for Vcant
-	Wave/T UserAlias
-	Redimension/N=1 UserAlias
-	UserAlias[0] = "LinearCombo.Output"
-	SetDimLabel 0, 0, 'Lateral', UserAlias
-	Wave/T AllAlias
-	AllAlias[22] = "LinearCombo.Output"
-	
-	WriteAllAliases()
-	
-	SetDataFolder DfSave
-	
-End
-
-Function CheckWiring()
+Function CheckWiring(displayDialog)
+	Variable displayDialog
 	// This will be executed AFTER the PID has been set up
 	// In A must increase if Out A is increased.
 	// Will try two values (eg 2V and 5V) to see if BNC cables have been
 	// correctly set up.
+	if(displayDialog)
+		DoAlert 1,"Do you want me to check if all electrical connections\nhave correctly been wired?\n(Strongly Recommended)"
+		if(V_flag!=1)
+			// No or cancel clicked
+			return -1
+		endif
+	endif
 	
 	td_WV("Output.A",2)
 		
@@ -612,10 +857,19 @@ Function CheckWiring()
 	
 	if(in2 > (in1+0.15) && in1 > 0.1)
 		DoAlert 0,"Connections ok!"
+		
+		// Commit this check to memory:
+		String dfSave = GetDataFolder(1)
+		SetDataFolder root:Packages:TemperatureControl
+		NVAR gWireChecked
+		gWireChecked = 1
+		SetDataFolder dfSave
+		
 	else
 		DoAlert 0,"Cantilever improperly connected!\nPlease make sure to wire:\n1. Input0 to sense voltage\n2. Output0 to total voltage"
 	endif
-
+	
+	
 End
 
 Function WireXpt(whichpopup,channel)
@@ -651,242 +905,6 @@ Function PIDPanelButtonFunc(action, loop)
 	PIDSLoopButtonFunc(InfoStruct)
 End
 
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////// IV CHARACTERIZATION //////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-Function IVCharDriver()
-	
-	// If the panel is already created, just bring it to the front.
-	DoWindow/F IVCharPanel
-	if (V_Flag != 0)
-		return 0
-	endif
-	
-	String dfSave = GetDataFolder(1)
-	
-	// Create a data folder in Packages to store globals.
-	NewDataFolder/O/S root:packages:TemperatureControl
-	
-	Variable rsense = NumVarOrDefault(":gRsense",0.98)
-	Variable/G gRsense= rsense
-	
-	NewDataFolder/O/S root:packages:TemperatureControl:IVChar
-	
-	//Variables declaration
-	Variable Vinitial = NumVarOrDefault(":gVinitial",1)
-	Variable/G gVinitial= Vinitial
-	Variable Vfinal = NumVarOrDefault(":gVfinal",1)
-	Variable/G gVfinal= Vfinal
-	Variable Vstep = NumVarOrDefault(":gVstep",1)
-	Variable/G gVstep= Vstep
-	Variable numsteps = NumVarOrDefault(":gnumsteps",1)
-	Variable/G gnumsteps= numsteps
-	Variable delay = NumVarOrDefault(":gdelay",1)
-	Variable/G gDelay= delay
-	Variable/G gAbort = 0
-	Variable/G gProgress = 0
-	
-	Make/O/N=(2) Vtotalwave
-	Make/O/N=(2) Vsensewave
-	Make/O/N=(2) Vcantwave
-	Make/O/N=(2) Rcantwave
-	Make/O/N=(2) Pcantwave
-	Make/O/N=(2) Icantwave
-	//Reset the datafolder to the root / previous folder
-	SetDataFolder dfSave
-	
-	CrossPointSetup(-1)	
-
-	//Check to make sure cables are properly plugged in:
-	DoAlert 1,"Do you want me to check if all electrical connections\nhave correctly been wired?\n(Strongly Recommended)"
-	if(V_flag==1)
-		// Yes clicked
-		CheckWiring()
-	endif
-	
-	// Create the control panel.
-	Execute "IVCharPanel()"
-	
-
-End
-
-
-Window IVCharPanel(): Panel
-	
-	PauseUpdate; Silent 1		// building window...
-	NewPanel /K=1 /W=(485,145, 1300,700) as "Heated Cantilever I-V Characterization Panel"
-	SetDrawLayer UserBack
-		
-	SetVariable sv_Rsense,pos={16,20},size={132,18},title="Rsense (kOhm)", limits={0,inf,1}
-	SetVariable sv_Rsense,value= root:packages:TemperatureControl:gRsense,live= 1
-	
-	SetVariable sv_Vinitial,pos={188,20},size={112,18},title="V initial (V)", limits={0,10,1}, proc=IVSetVarProc
-	SetVariable sv_Vinitial,value= root:packages:TemperatureControl:IVChar:gVinitial,live= 1
-	
-	SetVariable sv_Vstep,pos={336,20},size={105,18},title="V step (V)", limits={0,10,1}, proc=IVSetVarProc
-	SetVariable sv_Vstep,value= root:packages:TemperatureControl:IVChar:gVstep,live= 1
-	
-	SetVariable sv_steps,pos={42,57},size={105,18},title="Num steps", limits={1,inf,1}, proc=IVSetVarProc
-	SetVariable sv_steps,value= root:packages:TemperatureControl:IVChar:gNumSteps,live= 1
-	
-	ValDisplay vd_VFinal,pos={353,57},size={84,20},title="V Final"
-	ValDisplay vd_VFinal,value= root:packages:TemperatureControl:IVChar:gVFinal,live= 1
-	
-	SetVariable sv_tDelay,pos={185,57},size={120,18},title="Delay (sec)", limits={0,inf,1}
-	SetVariable sv_tDelay,value= root:packages:TemperatureControl:IVChar:gDelay,live= 1
-	
-	Button but_start,pos={468,18},size={80,25},title="Start", proc=StartIVChar
-	Button but_stop,pos={468,50},size={80,25},title="Stop", proc=StopIVChar
-	
-	ValDisplay vd_Progress,pos={566,30},size={214,20},title="Progress", mode=0, live=1
-	ValDisplay vd_Progress,limits={0,100,0},barmisc={0,40},highColor= (0,43520,65280)
-	ValDisplay vd_Progress, fsize=18, value=root:Packages:TemperatureControl:IVChar:GProgress
-	
-	String dfSave= GetDataFolder(1)
-	SetDataFolder root:packages:TemperatureControl:IVChar
-	
-	Display/W=(21,85,397,292) /HOST=# VcantWave, vs VTotalWave
-	ModifyGraph frameStyle=5
-	Label bottom "V total (V)"
-	Label left "V cant (V)"
-	RenameWindow #,G0
-	SetActiveSubwindow ##
-	
-	Display/W=(410,85,790,292) /HOST=# RcantWave, vs VTotalWave
-	ModifyGraph frameStyle=5
-	Label bottom "V total (V)"
-	Label left "R cant (k Ohms)"
-	RenameWindow #,G1
-	SetActiveSubwindow ##
-	
-	Display/W=(21,305,397,505) /HOST=# PcantWave, vs VTotalWave
-	ModifyGraph frameStyle=5
-	Label bottom "V total (V)"
-	Label left "P cant (mW)"
-	RenameWindow #,G2
-	SetActiveSubwindow ##
-	
-	Display/W=(410,305,790,505) /HOST=# IcantWave, vs VTotalWave
-	ModifyGraph frameStyle=5
-	Label bottom "V total (V)"
-	Label left "I Cant (mA)"
-	RenameWindow #,G3
-	SetActiveSubwindow ##
-	
-	SetDataFolder dfSave		
-	SetDrawEnv fstyle= 1 
-	SetDrawEnv textrgb= (0,0,65280)
-	DrawText 624,535, "Suhas Somnath, UIUC 2010"
-End	
-
-Function IVSetVarProc(sva) : SetVariableControl
-	STRUCT WMSetVariableAction &sva
-
-	switch( sva.eventCode )
-		case 1: // mouse up
-		case 2: // Enter key
-		case 3: // Live update
-			Variable dval = sva.dval
-			
-			String dfSave = GetDataFolder(1)
-	
-			SetDataFolder root:Packages:TemperatureControl:IVChar
-			
-			NVAR gVinitial, gVstep, gNumSteps, gVFinal
-			
-			if(gVinitial + gVstep * gNumSteps > 10)
-				gNumSteps = floor((10-gVinitial)/gVstep)
-				
-			endif
-			gVFinal = gVinitial + gVStep * gNumSteps
-			SetDataFolder dfSave
-			break
-	endswitch
-
-	return 0
-End
-
-Function StopIVChar(ctrlname) : ButtonControl
-	String ctrlname
-	
-	String dfSave = GetDataFolder(1)
-		
-	SetDataFolder root:Packages:TemperatureControl:IVChar
-	NVAR gAbort
-	
-	gAbort = 1
-	
-	SetDataFolder dfSave
-	
-End
-
-Function StartIVChar(ctrlname) : ButtonControl
-	String ctrlname
-	
-	ModifyControl but_start, disable=2, title="Running..."
-		
-	// Forcing the crosspoints to stay again:
-	CrossPointSetup(-1)
-	
-	String dfSave = GetDataFolder(1)
-	
-	SetDataFolder root:Packages:TemperatureControl
-	NVAR gRsense
-	
-	SetDataFolder root:Packages:TemperatureControl:IVChar
-	NVAR gVinitial, gVstep, gNumSteps, gDelay, gAbort, gProgress
-	
-	Variable vinitial = gVinitial
-	Variable Vstep = gVstep
-	Variable numsteps = gNumsteps
-	Variable delay =gDelay	* 60 // per sec
-	Variable rsense = gRsense
-	
-	Wave Vtotalwave, VsenseWave, VcantWave, RcantWave, PcantWave, IcantWave
-	Redimension/N=(NumSteps+1) Vtotalwave, VsenseWave, VcantWave, RcantWave, PcantWave, IcantWave
-	
-	gProgress = 0
-	
-	Variable i=0;
-	for(i=0; i<= NumSteps; i+=1)
-	
-		if(gAbort)
-			gAbort = 0
-			break
-		endif
-	
-		td_WV("Output.A",Vinitial + i*Vstep)
-		Variable Vssum = 0
-		Variable count = 0
-		Variable t0 = ticks
-		do
-			Vssum += td_RV("Input.A")
-			count += 1
-		while(ticks-t0<Delay)
-		
-		gProgress = (i/NumSteps)*100
-		//print "iteration #" + num2str(i) + " now complete"
-		
-		// Calculate the varialbes now:
-		VtotalWave[i] = Vinitial + i*Vstep
-		VsenseWave[i] = Vssum / count
-		VcantWave[i] =  VTotalWave[i] - VsenseWave[i]
-		IcantWave[i] =VsenseWave[i] / rsense // in mA
-		RcantWave[i] = VcantWave[i] / IcantWave[i]
-		PcantWave[i] = VcantWave[i] * IcantWave[i]
-		
-	endfor
-	
-	ModifyControl but_start, disable=0, title="Start"
-	
-	Edit/K=1 VTotalWave,VsenseWave,VCantWave,RCantWave,PCantWave,ICantWave
-	
-	SetDataFolder dfSave
-	
-	td_WV("Output.A",0.5)
-	
-End
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////// DISCARDED FUNCTIONS ///////////////////////////////////////////////
