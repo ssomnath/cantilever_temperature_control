@@ -3,24 +3,140 @@
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////// VERY IMPORTANT - READ THIS FIRST  //////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Software requirements:
+//----------------------------------------------------
+// Igor Pro 6.1 or later
+// Asylum Research software version: MFP3D 090909+xxxx or later
+
+// Electrical connections Instructions:
+//--------------------------------------------------
 // Please make sure to use the voltage follower box specially constructed to work 
 // around the impedence matching problem of ARC1 and ARC2 controllers for this
 // code to work accurately.
+// Electrical circuit: [+] ---  cantilever (Rcant) --- current limiting sense resistor (Rsense) ---- [ground]
+// 1. Connect the Expansion port (D-Sub 25 pin) to the Voltage follower box 
+// 2. Connect Vsense (voltage across Rsense) to the in0 labled on the box NOT on the BNCin0 on the ARC1/ARC2 Controller
+// 3. Connect Vtotal to the in1 labled on the box NOT on the BNCin1 on the ARC1/ARC2 Controller
+// 4. Connect Vtotal to BNCout0 on the ARC1/ARC2 Controller
 
-// Connect the Expansion port (D-Sub 25 pin) to the Voltage follower box and then
-// connect Vsense to the in0 labled on the box NOT on the BNCin0 on the ARC1/ARC2
+// NOTE - Don't set the Rcant setpoint too close to the room temperature resistance of the cantilever.
+// This causes the PID control to approach a singularity point. In this case 0V will be applied to the circuit resulting
+// in no damage to the cantilever. 
+
+// DISCLAIMER:
+// ---------------------------------
+// This code is foreign to the existing AFM software. I have worked around many issues painstakingly to ensure
+// that this code works as smoothly as possible. In the same manner, care has been takine to ensure that the
+// normal AFM operation is not thwarted in any way. Sometimes, when this package is started up but not used actively,
+// certain native operations of the AFM software tend to take back certain resources that were allocated for this code.
+// This may manifest in the form of malfunctioning temperature control meters, stoppage in the PID controlling the
+// cantilever temperature, etc. None of these should damage the cantilever in anyway. To resume normal operation 
+// of this code when necessary, use the reinitialize / refresh buttons provided. Typically, clicking on the start button
+// is sufficient to bring things back to normal. This code has been tested extensively and its use has so far never
+// resulted in any damage to the cantilever or the sample but please be careful when using this code and be mindful
+// of the fact that this code is still foreign to the native AFM software.
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////// BASICS  ///////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// 1. Installing the code:
+// This is slightly complicated. Contact me for installation.
+// Copy this file to C:\Program Files\WaveMetrics\Igor Pro Folder_09_09_09\AsylumResearch\Code3D\UserIncludes
+
+// 2. Accesssing the Heated Cantilever Suite:
+// In the top menu bar of the AFM software: UIUC >> Heated Cantilever Suite >>
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////  I-V Characterization  /////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// This package is accessed by clicking on UIUC >> Heated Cantilever Suite >> I-V Characterization
+
+// This package lets you electrically characterize the probe by linearly ramping the voltage being applied
+// across the heating cirucit . 
+
+// Rsense (kOhm) ->  The resistance of the sense resistor in kilo ohms
+// You can apply at most 10V with this setup so choose your sense resistor that will allow you 
+// to access the cantilever temperatures you are interested in. 
+// I advise you to pick sense resistors in the range of 1.0 to 5 kilo ohms.
+// The value entered here will persist throughout the AFM software.
+
+// V initial (V) ->  Initial voltage to be appled across the circuit (0V <= V initial <10V). 
+// Lower ranges of voltage (0-1V) are typically less reliable. 1V should be just fine.
+
+// V final (V) -> Maximum voltage that will be applied across the cirucit (0V < V final <= 10V)
+// I advise you to start with something small like 2V and go as high as necessary.
+
+// The specifics of the voltage ramp are specified next:
+
+// Delay (sec)  ->  Time delay in seconds between measurement points. Larger the delay, greater the 
+// number of points of data being averaged. Any time greater than 1 sec will not necesarily improve
+// the accuracy of the results greatly. Ensure that the delay is at least 250 msec.
+
+// V step (V)  ->  incremental voltage being applied across the circuit between measurement points 
+
+// Show data check box ->   If this is left checked, a table will pop up with the results of the IV characterization
+
+// Once the above parameters are specified, you may click the "start" button. If it does nothing on the first click, click it again.
+
+// In the event that you want to stop the ramp at any time, you can do so by clicking the "Stop" button. 
+
+// Four graphs are updated in real time as each measurement point is acquired. Due to the nature of Igor Pro, 
+// the data may appear in an ackward manner because Igor Pro considers (0,0) as a point of measurement even if
+// it is a virtual point on the graph. This will disappear and the data will look cleaner once the ramp is completed.
+
+// The four graphs display circuit properties against actual bias applied across the circuit and 
+// are as follows in a anti-clockwise direciton:
+// 1. Cantilever resistance
+// 2. Voltage across the cantilever
+// 3. Power supplied to the cantilever
+// 4. Current through the cantilever
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////   THERMAL LITHOGRAPHY  /////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// This package is accessed by clicking on UIUC >> Heated Cantilever Suite >> Thermal Lithography
+
+// This window allows you to perform thermal lithograhy with a heated cantilever.
+// The lithography lines / patterns drawn either using Microangelo or SmartLitho 
+// can be synchronized if appropriate triggers are inserted into Asylum's code
+// With the trigger code inserted, this package is capable of switching the cantilever's
+// temperature from warm to hot and vice-versa when cantilever is performing lithography.
+
+// R sense (k Ohm) --> The resistance of the sense resistor in kilo ohms
+// See notes on the I-V characterization section for more details
+
+// R Normal (k Ohm) -->  This is the cantilever's resistance setpoint to be maintained when
+// NOT performing lithography. 
+
+// R Litho (k Ohm) --> This is the cantilever resistance setpoint to be mantained when performing
+// lithography
+
+// Note - Due to limitations of Asylum's hardware & software, the above mentioned canilever
+// resistance setpoints may not be maintained very accurately (although the precision
+
+// This package also allows slow ramping of cantilver temperature while performing lithography
+// 
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////// VERSION LOG  /////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Upcoming changes:
-// Cannot achieve complete accuracy in PID, at least make meter accurate - Completely get rid of Lateral for Meter
 // proportional gain for TF-AFM
+// Integral and differential parameters for temperature control
 
-// Version 1.7:
+// Version 1.8 (9/17/2011):
+// SetPID correction factor now ensures that actual setpoint is close to user specified setpoint.
+// Other minor bugfixes
+
+// Version 1.7 (9/16/2011):
 // Cleaned up UI
 // IV calib - made V final editable not num steps
 // IV calib - Now shows table if requested
-// More accurate IV calib by reading Vtot as well (DACs are quite inaccurate & I haven't been able to offet the voltage using the doIVPanel
+// More accurate IV calib AND meter panel by reading Vtot as well (DACs are quite inaccurate & I haven't been able to offet the voltage using the doIVPanel)
 
 // Version 1.6:
 // Lithography with ramped temperature
@@ -36,6 +152,7 @@
 
 //Version 1.3
 // Added a refresh button to meter panel
+// Misc changes
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -44,7 +161,7 @@
 //Use this to check if thermal code exists.
 //DataFolderExists("root:packages:TemperatureControl" )
 
-Menu "Macros"
+Menu "UIUC"
 	Submenu "Heated Cantilever Suite"
 		"Check Circuit Wiring", ThermalWiringChecker()
 		"I-V Characaterization", IVCharDriver()
@@ -77,11 +194,12 @@ Function TempContMeterDriver()
 	NewDataFolder/O/S root:packages:TemperatureControl:Meter
 	
 	//Variables declaration
-	Variable/G GRcant = 0
-	Variable/G GIcant = 0
-	Variable/G GPcant = 0
-	Variable/G GVtot = 0
-	Variable/G GrunMeter = 1
+	Variable/G gRcant = 0
+	Variable/G gIcant = 0
+	Variable/G gPcant = 0
+	Variable/G gVtot = 0
+	Variable/G gVcant = 0;
+	Variable/G gRunMeter = 1
 		
 	ReInitializeThermalMeterPanel("")
 	
@@ -134,11 +252,11 @@ Window TempContMeterPanel(): Panel
 	
 	ValDisplay vd_Vcant,pos={58,123},size={346,20},title="V cant (V)", mode=0
 	ValDisplay vd_Vcant,limits={0,10,0},barmisc={0,70},highColor= (0,43520,65280)
-	ValDisplay vd_Vcant, fsize=18, value=Root:Packages:MFP3D:Meter:Lateral
+	ValDisplay vd_Vcant, fsize=18, value=root:Packages:TemperatureControl:Meter:GVcant
 	
 	ValDisplay vd_Vtot,pos={74,157},size={331,20},title="V tot (V)", mode=0
 	ValDisplay vd_Vtot,limits={0,10,0},barmisc={0,70},highColor= (0,43520,65280)
-	ValDisplay vd_Vtot, fsize=18, value=Root:Packages:MFP3D:Meter:ReadMeterRead[%UserIn0][0]+Root:Packages:MFP3D:Meter:Lateral
+	ValDisplay vd_Vtot, fsize=18, value=root:Packages:TemperatureControl:Meter:GVtot
 	
 	ValDisplay vd_statusLED, value=str2num(root:packages:MFP3D:Main:PIDSLoop[%Status][5])
 	ValDisplay vd_statusLED, mode=2, limits={-1,1,0}, highColor= (0,65280,0), zeroColor= (65280,65280,16384)
@@ -158,27 +276,23 @@ Function bgThermalMeter()
 		
 	String dfSave = GetDataFolder(1)
 	
-	//WAVE tempWave = Root:Packages:MFP3D:Meter:ReadMeterRead
-	//Variable Vsense = tempWave[%UserIn0][0]
-	
-	//SetDataFolder Root:Packages:MFP3D:Meter
-	//NVAR Lateral
-	
-	//Variable Vcant = Lateral
-	
-	Variable Vsense = td_RV("UserIn0")
-
-	Variable Vcant = td_RV("Lateral")
-	
 	SetDataFolder root:packages:TemperatureControl
 	NVAR gRsense
 	SetDataFolder root:packages:TemperatureControl:Meter
-	NVAR gRcant, gPcant, gIcant, gRunMeter, gVtot, gCount
-		
+	NVAR gRcant, gPcant, gIcant, gRunMeter, gVtot, gVcant
+	
+	Variable Vsense = td_RV("Input.A") //td_RV("Input.A")
+	
+	gVtot = td_RV("Input.B"); // NOT using lateral here
+	
+	//Variable Vsense = td_RV("UserIn0") //td_RV("Input.A")
+	
+	//gVtot = td_RV("UserIn1"); // NOT using lateral here
+	
+	gVcant = gVtot - Vsense
 	gIcant = Vsense / gRsense // in mA
-	gPcant = Vcant * gIcant // in mW
-	gRcant = Vcant / gIcant // in kOhms
-	gVtot = Vsense + Vcant // in V
+	gPcant = gVcant * gIcant // in mW
+	gRcant = gVcant / gIcant // in kOhms
 	
 	SetDataFolder dfSave	
 		
@@ -741,6 +855,7 @@ Function SetHeat(mode)
 	gHeatingState = mode;
 	if(mode)
 		//Litho mode
+		
 		SetPID(-1*(1+(gRLitho/gRsense)))
 		
 		if(gDoRamp)
@@ -749,6 +864,7 @@ Function SetHeat(mode)
 		endif
 	else
 		// Normal mode
+		
 		SetPID(-1*(1+(gRNorm/gRsense)))
 	endif
 	
@@ -957,9 +1073,6 @@ Function StartIVChar2(ctrlname) : ButtonControl
 	
 	// Forcing the crosspoints to stay again:
 	CrossPointSetup(-1)
-	// Currently, ONLY for IV calibration - we read V total using an additional channel
-	// for increased accuracy. MFP DACs are quite inaccurate
-	WireXpt("InBPopup","BNCIn1");
 	
 	String dfSave = GetDataFolder(1)
 	
@@ -1095,6 +1208,17 @@ End
 
 Function SetPID(pgain)
 	Variable pgain
+	
+	// Version 1.8 and beyond: Rcant setpoint corrected here:
+	
+	
+	// Pgain = 1 + RcBAD / Rs
+	pgain = pgain-1;
+	// pgain is now RcBAD / Rs
+	pgain = pgain*(1/0.975)
+	// pgain is now RcGOOD / Rs
+	pgain = 1+ pgain;
+	
 	String dfSave = GetDataFolder(1)
 	SetDataFolder root:packages:TemperatureControl
 	Wave/T parms
@@ -1114,14 +1238,16 @@ Function StopPID()
 	// this should not affect future actions:
 	//ARCheckFunc("DontChangeXPTCheck",0)
 	
-	String dfSave = GetDataFolder(1)
-	SetDataFolder root:packages:TemperatureControl:Lithography
-	NVAR gHeatingState, gAllowHeating
+	if(DataFolderExists("root:packages:TemperatureControl:Lithography" ))
+		String dfSave = GetDataFolder(1)
+		SetDataFolder root:packages:TemperatureControl:Lithography
+		NVAR gHeatingState, gAllowHeating
 	
-	gHeatingState = -1
-	//gRunRampBGfun = 0;
-	gAllowHeating=0;
-	SetDataFolder dfSave
+		gHeatingState = -1
+		//gRunRampBGfun = 0;
+		gAllowHeating=0;
+		SetDataFolder dfSave
+	endif
 	
 	//Safety Cutoff
 	td_WV("Output.A",0.5)	
@@ -1225,6 +1351,10 @@ Function CrossPointSetup(scanmode)
 	//td_WS("Crosspoint.InA","BNCIn0")
 	WireXpt("InAPopup","BNCIn0")
 	
+	// Used in IV calibration and Meter - we read V total using an additional channel
+	// for increased accuracy. MFP DACs are quite inaccurate
+	WireXpt("InBPopup","BNCIn1");
+	
 	//Reading second channel - Vtotal
 	//td_WS("Crosspoint.InB","BNCIn1")
 	// Not required any more. Automatically calculating this stuff in "Lateral"
@@ -1296,7 +1426,7 @@ Function CheckWiring(displayDialog)
 		SetDataFolder dfSave
 		
 	else
-		DoAlert 0,"Cantilever improperly connected!\nConnect Vtotal to controller front panel \n2. Connect Vsense to the Voltage Connector box not the front panel of the controller. \n3. Use expansion cable to connect controller to Voltage Follwer circuit box"
+		DoAlert 0,"Cantilever improperly connected!\nConnect Vtotal to controller front panel \n2. Connect Vsense and Vtotal to the Voltage Connector box not the front panel of the controller. \n3. Use expansion cable to connect controller to Voltage Follwer circuit box"
 	endif
 	
 	
