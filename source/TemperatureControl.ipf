@@ -37,7 +37,15 @@ Function TempContMeterDriver()
 	Variable/G GIcant = 0
 	Variable/G GPcant = 0
 	Variable/G GVtot = 0
+	Variable/G GVcant = 0
 	Variable/G GrunMeter = 1
+	
+	// Setting up all the backend wiring:
+	SetupVcantAlias()
+	forceLateral()
+	ThermalPIDSetup()
+	setLinearCombo()
+	td_wv("output.A",0.5)
 		
 	// Starting background process here:
 	//SetBackground bgThermalMeter()
@@ -72,11 +80,12 @@ Window TempContMeterPanel(): Panel
 	
 	ValDisplay vd_Vcant,pos={58,123},size={346,20},title="V cant (V)", mode=0
 	ValDisplay vd_Vcant,limits={0,10,0},barmisc={0,70},highColor= (0,43520,65280)
-	ValDisplay vd_Vcant, fsize=18, value=Root:Packages:MFP3D:Meter:Lateral
+	ValDisplay vd_Vcant, fsize=18, value=root:Packages:TemperatureControl:Meter:GVcant//Root:Packages:MFP3D:Meter:Lateral
 	
 	ValDisplay vd_Vtot,pos={74,157},size={331,20},title="V tot (V)", mode=0
 	ValDisplay vd_Vtot,limits={0,10,0},barmisc={0,70},highColor= (0,43520,65280)
-	ValDisplay vd_Vtot, fsize=18, value=Root:Packages:MFP3D:Meter:ReadMeterRead[%UserIn0][0]+Root:Packages:MFP3D:Meter:Lateral
+	ValDisplay vd_Vtot, fsize=18, value=root:Packages:TemperatureControl:Meter:GVtot
+	//Root:Packages:MFP3D:Meter:ReadMeterRead[%UserIn0][0]+Root:Packages:MFP3D:Meter:Lateral
 	
 	ValDisplay vd_statusLED, value=str2num(root:packages:MFP3D:Main:PIDSLoop[%Status][5])
 	ValDisplay vd_statusLED, mode=2, limits={-1,1,0}, highColor= (0,65280,0), zeroColor= (65280,65280,16384)
@@ -107,12 +116,33 @@ Function bgThermalMeter()
 	SetDataFolder root:packages:TemperatureControl
 	NVAR gRsense
 	SetDataFolder root:packages:TemperatureControl:Meter
-	NVAR gRcant, gPcant, gIcant, gRunMeter, gVtot, gCount
+	NVAR gRcant, gPcant, gIcant, gRunMeter, gVtot, gVcant
+	
+	
+	gVtot = (Vsense + Vcant)//*correction 
+	// Perhaps, the correction factor needs to be a function too?
+	Variable correction = 0.94
+	if(gVtot < 0.55)
+		correction = 0.8
+	elseif(gVtot >= 0.55 && gVtot < 1.1)
+		correction = 0.88
+	elseif(gVtot >= 1.1 && gVtot < 2.55)
+		correction = 0.925
+	elseif(gVtot >=2.55 && gVtot < 5.1)
+		correction = 0.94
+	elseif(gVtot >=5.1)
+		correction = 0.951
+	endif
+	
+	gVtot = gVtot * correction// in V (applying the approximate correction factor)
 		
+	
+	gVcant = gVtot - Vsense
 	gIcant = Vsense / gRsense // in mA
-	gPcant = Vcant * gIcant // in mW
-	gRcant = Vcant / gIcant // in kOhms
-	gVtot = Vsense + Vcant // in V
+	gPcant = gVcant * gIcant // in mW
+	gRcant = gVcant / gIcant // in kOhms
+	
+	setLinearCombo()	
 	
 	SetDataFolder dfSave	
 		
@@ -160,6 +190,8 @@ Function ThermalImagingDriver()
 		//Check to make sure cables are properly plugged in:
 		CheckWiring(1)
 	endif
+	
+	TempContMeterDriver()
 	
 	// Create the control panel.
 	Execute "ThermalImagingPanel()"
@@ -259,36 +291,11 @@ Function startImagingPID()
 	setLinearCombo()
 	//SetupVcantAlias()
 	
-	SetPID(-1*(1+(gRcant/gRsense)))
+	SetPID(-1*(1+(gRcant/gRsense))/0.94)
 	
 	//td_WS("Event.12","once"); 
 	td_WV("PIDSLoop.5.Status",1);
 	PIDPanelButtonFunc("Read",5)	
-End
-
-Function SetupVcantAlias()
-
-	// Hacking the Asylum panels to automatically shove in an Alias:
-	// To do this manually: Programming >> XOPTables >> Aliases >> User tab
-	// Edit/K=0 UserAlias.ld
-
-	String dfSave = GetDataFolder(1)
-	SetDataFolder root:packages:MFP3D:Hardware
-	// Potential goes in #18
-	//For some reason it keeps showing up as NaN despite giving good data for the topography.
-	// So I switched to Lateral. 
-	// Also easier to do the meter with a non NAN channel for Vcant
-	Wave/T UserAlias
-	Redimension/N=1 UserAlias
-	UserAlias[0] = "LinearCombo.Output"
-	SetDimLabel 0, 0, 'Lateral', UserAlias
-	Wave/T AllAlias
-	AllAlias[22] = "LinearCombo.Output"
-	
-	WriteAllAliases()
-	
-	SetDataFolder DfSave
-	
 End
 
 Function setUpVcantWindow()
@@ -345,7 +352,9 @@ Function ThermalLithoDriver()
 	//Check to make sure cables are properly plugged in:
 	if(wireChecked==0)
 		CheckWiring(1)
-	endif	
+	endif
+	
+	TempContMeterDriver()	
 	
 	//Reset the datafolder to the root / previous folder
 	SetDataFolder dfSave
@@ -723,6 +732,34 @@ Function StopPID()
 	//Safety Cutoff
 	td_WV("Output.A",0.5)
 	PIDPanelButtonFunc("Read",5)
+	// If the user doesn't want to do anything with the thermal panel
+	// this should not affect future actions:
+	ARCheckFunc("DontChangeXPTCheck",0)
+End
+
+Function SetupVcantAlias()
+
+	// Hacking the Asylum panels to automatically shove in an Alias:
+	// To do this manually: Programming >> XOPTables >> Aliases >> User tab
+	// Edit/K=0 UserAlias.ld
+
+	String dfSave = GetDataFolder(1)
+	SetDataFolder root:packages:MFP3D:Hardware
+	// Potential goes in #18
+	//For some reason it keeps showing up as NaN despite giving good data for the topography.
+	// So I switched to Lateral. 
+	// Also easier to do the meter with a non NAN channel for Vcant
+	Wave/T UserAlias
+	Redimension/N=1 UserAlias
+	UserAlias[0] = "LinearCombo.Output"
+	SetDimLabel 0, 0, 'Lateral', UserAlias
+	Wave/T AllAlias
+	AllAlias[22] = "LinearCombo.Output"
+	
+	WriteAllAliases()
+	
+	SetDataFolder DfSave
+	
 End
 
 Function setLinearCombo()
@@ -860,9 +897,9 @@ Function CheckWiring(displayDialog)
 		
 		// Commit this check to memory:
 		String dfSave = GetDataFolder(1)
-		SetDataFolder root:Packages:TemperatureControl
-		NVAR gWireChecked
-		gWireChecked = 1
+		NewDataFolder/O/S root:packages:TemperatureControl
+		Variable wireChecked = NumVarOrDefault(":gWireChecked",0)
+		Variable/G gWireChecked = 1
 		SetDataFolder dfSave
 		
 	else
@@ -905,6 +942,10 @@ Function PIDPanelButtonFunc(action, loop)
 	PIDSLoopButtonFunc(InfoStruct)
 End
 
+Function forceLateral()
+	MeterPopupFunc("LateralPopup",3,"On")
+	MeterPanelSetup("MeterSetupDone")
+End
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////// DISCARDED FUNCTIONS ///////////////////////////////////////////////
