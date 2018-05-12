@@ -1,7 +1,7 @@
 #pragma rtGlobals=1		// Use modern global access method.
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////// VERY IMPORTANT - READ THIS FIRST  //////////////////////////////////////////
+///////////////////////////// VERY IMPORTANT - READ THIS FIRST  //////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Please make sure to use the voltage follower box specially constructed to work 
 // around the impedence matching problem of ARC1 and ARC2 controllers for this
@@ -13,8 +13,10 @@
 ///////////////////////////////////////////////// VERSION LOG  /////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Upcoming changes:
-// ramp + pulse (requires BG fun monitoring? what if line ends before ramp has completed.)
 // proportional gain for TF-AFM
+
+// Version 1.6:
+// Lithography with ramped temperature
 
 // Version 1.5:
 // Realtime Lithography & Imaging setpoint updating
@@ -36,7 +38,7 @@
 //DataFolderExists("root:packages:TemperatureControl" )
 
 Menu "Macros"
-	Submenu "Temperature Control"
+	Submenu "Heated Cantilever Suite"
 		"Check Circuit Wiring", ThermalWiringChecker()
 		"I-V Characaterization", IVCharDriver()
 		"Thermal Imaging", ThermalImagingDriver()
@@ -405,7 +407,7 @@ Function UpdateRcant(sva) : SetVariableControl
 			
 			// Completely update PID ONLY if already running
 			if(td_RV("PIDSLoop.5.Status")==1)
-				print "PID running. Therefore I am updating"
+				//print "PID running. Therefore I am updating"
 				SetPID(-1*(1+(gRcant/gRsense)))
 				td_WV("PIDSLoop.5.Status",1);
 			endif
@@ -481,9 +483,20 @@ Function ThermalLithoDriver()
 	//Variables declaration
 	Variable RLitho = NumVarOrDefault(":gRLitho",4)
 	Variable/G gRLitho= RLitho
+	Variable doRamp = NumVarOrDefault(":gDoRamp",0)
+	Variable/G gDoRamp= doRamp
+	Variable Rstep = NumVarOrDefault(":gRstep",0.1)
+	Variable/G gRstep= Rstep
+	Variable tStep = NumVarOrDefault(":gtStep",1)
+	Variable/G gtStep= tStep
+	Variable Rmax = NumVarOrDefault(":gRmax",6)
+	Variable/G gRmax= Rmax
+	Variable/G gRampStartTick= 0
+	Variable/G gCurrentSetpoint = 0;
 	Variable RNorm = NumVarOrDefault(":gRNorm",3)
 	Variable/G gRNorm= RNorm
 	Variable/G gAllowHeating = 0
+	Variable/G gRunRampBGfun = 0;
 	// -1 - unheated, 0 - warm / normal mode, 1 - litho / imaging (fully heated)
 	Variable HeatingState = NumVarOrDefault(":gHeatingState",-1)
 	Variable/G gHeatingState= HeatingState
@@ -508,27 +521,62 @@ End
 Window ThermalLithoPanel(): Panel
 	
 	PauseUpdate; Silent 1		// building window...
-	NewPanel /K=1 /W=(485,145, 700,325) as "Thermal Lithography Panel"
+	NewPanel /K=1 /W=(485,145, 733,473) as "Thermal Lithography Panel"
 	SetDrawLayer UserBack
 		
 	SetVariable sv_Rsense,pos={16,20},size={180,18},title="R Sense (kOhm)", limits={0,inf,1}
 	SetVariable sv_Rsense,value= root:packages:TemperatureControl:gRsense,live= 1
-	SetVariable sv_RLitho,pos={16,49},size={180,18},title="R Litho (kOhm)", limits={0,inf,1}, proc=UpdateLithoSetpt
-	SetVariable sv_RLitho,value= root:packages:TemperatureControl:Lithography:gRLitho,live= 1
-	SetVariable sv_RNorm,pos={16,80},size={180,18},title="R Normal (kOhm)", limits={0,inf,1}, proc=UpdateNormSetpt
+	SetVariable sv_RNorm,pos={16,49},size={180,18},title="R Normal (kOhm)", limits={0,inf,1}, proc=UpdateNormSetpt
 	SetVariable sv_RNorm,value= root:packages:TemperatureControl:Lithography:gRNorm,live= 1
+	SetVariable sv_RLitho,pos={16,80},size={180,18},title="R Litho (kOhm)", limits={0,inf,1}, proc=UpdateLithoSetpt
+	SetVariable sv_RLitho,value= root:packages:TemperatureControl:Lithography:gRLitho,live= 1
 	
-	Button but_start,pos={16,110},size={67,20},title="Start PID", proc=ThermalLithoButtonFunc,live= 1
-	Button but_stop,pos={133,110},size={63,20},title="Stop PID", proc=ThermalLithoButtonFunc,live= 1//, disable=2
+	// Ramp parameters:
+	Checkbox chk_AllowRamping, pos = {23, 115}, size={10,10}, title="Ramp Temperature", proc=AllowRampedHeating
+	Checkbox chk_AllowRamping, live=1,value=root:packages:TemperatureControl:Lithography:gDoRamp
+	SetVariable sv_Rstep,pos={42,145},size={180,18},title="R step (kOhm)", limits={0,inf,1}
+	SetVariable sv_Rstep,live= 1,disable=2,value=root:packages:TemperatureControl:Lithography:gRstep
+	SetVariable sv_tstep,pos={42,178},size={180,18},title="t step (sec)", limits={0,inf,1}
+	SetVariable sv_tstep,live= 1,disable=2, value=root:packages:TemperatureControl:Lithography:gtStep
+	SetVariable sv_Rmax,pos={42,213},size={180,18},title="R max (kOhm)", limits={0,inf,1}
+	SetVariable sv_Rmax,live= 1,disable=2, value=root:packages:TemperatureControl:Lithography:gRmax
+	
+	Button but_start,pos={16,253},size={75,28},title="Start PID", proc=ThermalLithoButtonFunc,live= 1
+	Button but_stop,pos={142,253},size={75,28},title="Stop PID", proc=ThermalLithoButtonFunc,live= 1//, disable=2
 	
 	ValDisplay vd_statusLED, value=str2num(root:packages:MFP3D:Main:PIDSLoop[%Status][5])
 	ValDisplay vd_statusLED, mode=2, limits={-1,1,0}, highColor= (0,65280,0), zeroColor= (65280,65280,16384)
-	ValDisplay vd_statusLED, lowColor= (65280,0,0), pos={102,112},size={15,15}, bodyWidth=15, barmisc={0,0}
+	ValDisplay vd_statusLED, lowColor= (65280,0,0), pos={101,256},size={20,20}, bodyWidth=20, barmisc={0,0}
 	
-	SetDrawEnv fstyle= 1 
+	SetDrawEnv fstyle= 1
+	SetDrawEnv fsize= 14
 	SetDrawEnv textrgb= (0,0,65280)
-	DrawText 49,162, "Suhas Somnath, UIUC 2010"
+	DrawText 30,313, "Suhas Somnath, UIUC 2010"
 	
+End
+
+Function AllowRampedHeating(cba) : CheckBoxControl
+	STRUCT WMCheckboxAction &cba
+
+	switch( cba.eventCode )
+		case 2: // mouse up
+			String dfSave = GetDataFolder(1)
+			SetDataFolder root:packages:TemperatureControl:Lithography
+			NVAR gDoRamp
+			gDoRamp = cba.checked
+			if(gDoRamp)
+				ModifyControl sv_Rstep, disable=!gDoRamp
+				ModifyControl sv_tstep, disable=!gDoRamp
+				ModifyControl sv_Rmax, disable=!gDoRamp
+			else
+				ModifyControl sv_Rstep, disable=2
+				ModifyControl sv_tstep, disable=2
+				ModifyControl sv_Rmax, disable=2
+			endif
+			break
+	endswitch
+
+	return 0
 End
 
 Function UpdateLithoSetpt(sva) : SetVariableControl
@@ -589,7 +637,7 @@ Function ThermalLithoButtonFunc(ctrlname) : ButtonControl
 	String dfSave = GetDataFolder(1)
 	SetDataFolder root:packages:TemperatureControl:Lithography
 	
-	NVAR gAllowHeating
+	NVAR gAllowHeating, gDoRamp, gRunRampBGfun
 			
 	strswitch (ctrlName)
 
@@ -600,6 +648,14 @@ Function ThermalLithoButtonFunc(ctrlname) : ButtonControl
 			SetDataFolder dfSave
 			startLithoPID()
 			setLinearCombo()
+			
+			if(gDoRamp)
+				// Start ramp monitoring background function
+				//print "starting ramp monitor"
+				gRunRampBGfun = 1;
+				ARBackground("bgRampMonitor",100,"")
+			endif
+			
 		break
 		
 		case "stop":
@@ -624,6 +680,42 @@ Function startLithoPID()
 		
 End
 
+Function bgRampMonitor()
+
+	String dfSave = GetDataFolder(1)
+	
+	SetDataFolder root:packages:TemperatureControl
+	NVAR gRsense
+	SetDataFolder root:packages:TemperatureControl:Lithography
+	NVAR gRstep, gtStep, gRmax, gRampStartTick, gCurrentSetpoint, gRLitho, gRunRampBGfun, gHeatingState
+	
+	
+	if(gHeatingState>0)
+	// Calculate expected setpoint:
+	
+		Variable iter = ceil((ticks - gRampStartTick)/(gtStep*60))
+		Variable expSetpt = min(gRmax,  gRLitho + iter * gRstep)
+	
+		// Case 1: Same iteration - don't change Pgain
+		
+		if(expSetpt > gCurrentSetpoint)
+			
+			// Case 2: next iteration - change Pgain.
+			gCurrentSetpoint = expSetpt
+			SetPID(-1*(1+(gCurrentSetpoint/gRsense)))
+			td_WV("PIDSLoop.5.Status",1);
+		endif
+	elseif(gHeatingState<0)
+		// Heating has stopped.
+		gRunRampBGfun=0;
+	endif
+	
+	SetDataFolder dfSave
+	
+	// When will this bg end?
+	return !gRunRampBGfun;
+End
+
 // Automatically sets the temperature of the tip
 // based on the supplied mode:
 // 0 ~ Normal (low heating)
@@ -638,7 +730,7 @@ Function SetHeat(mode)
 	
 	SetDataFolder root:packages:TemperatureControl:Lithography
 	
-	NVAR gRNorm, gRLitho, gAllowHeating, gHeatingState
+	NVAR gRNorm, gRLitho, gAllowHeating, gHeatingState, gRampStartTick, gDoRamp, gCurrentSetpoint
 	
 	if(!gAllowHeating)
 		SetDataFolder dfSave
@@ -653,6 +745,11 @@ Function SetHeat(mode)
 	if(mode)
 		//Litho mode
 		SetPID(-1*(1+(gRLitho/gRsense)))
+		
+		if(gDoRamp)
+			gRampStartTick = ticks;
+			gCurrentSetpoint = gRLitho;
+		endif
 	else
 		// Normal mode
 		SetPID(-1*(1+(gRNorm/gRsense)))
@@ -1011,18 +1108,23 @@ End
 Function StopPID()
 	// Writing -1 is the only way to reset / modify a loop
 	td_WV("PIDSLoop.5.Status",-1);
-	//Safety Cutoff
-	td_WV("Output.A",0.5)
-	PIDPanelButtonFunc("Read",5)
 	// If the user doesn't want to do anything with the thermal panel
 	// this should not affect future actions:
 	//ARCheckFunc("DontChangeXPTCheck",0)
 	
 	String dfSave = GetDataFolder(1)
 	SetDataFolder root:packages:TemperatureControl:Lithography
-	NVAR gHeatingState
+	NVAR gHeatingState, gAllowHeating
+	
 	gHeatingState = -1
+	//gRunRampBGfun = 0;
+	gAllowHeating=0;
 	SetDataFolder dfSave
+	
+	//Safety Cutoff
+	td_WV("Output.A",0.5)	
+	PIDPanelButtonFunc("Read",5)
+	
 End
 
 Function SetupVcantAlias()
@@ -1283,7 +1385,7 @@ Function StartIVChar(ctrlname) : ButtonControl
 		while(ticks-t0<Delay)
 		
 		gProgress = (i/NumSteps)*100
-		print "iteration #" + num2str(count) + " now complete"
+		//print "iteration #" + num2str(count) + " now complete"
 		
 		// Calculate the varialbes now:
 		VtotalWave[i] = Vinitial + i*Vstep
